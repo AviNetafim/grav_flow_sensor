@@ -26,7 +26,7 @@ commands
 #include "esp_log.h"
 
 
-#include "asd1231.h"
+#include "ads1231.h"
 #include "KeepCfg.h"
 #include "NetServer.h"
 
@@ -45,86 +45,107 @@ KeepCfg kc;
 ProgramParameters new_params(0,4,0,0);                                	// new configuration parameter - define required pramaters (?)
 ProgramParameters work_params(0,1800,0,0);                            	// working configuraiotn paramters 
 struct regs_action main_reg_act;
-LogRecord lr;																														// delete (?)	
 
 void show_reg_act(regs_action areg_act){
 	// show register states  after client command recevied - revise for new register structure
 	int i;
 	printf("function = %d, address: = %d\n", areg_act.func,areg_act.address);	 // decoded required function and address
-	printf(" -- config register:"); 
-	for (i = 0 ; i < 4 ; i ++) printf("%04x,", areg_act.config[i]);				// 0: configuration 
-	printf("\n"); 
-	printf(" -- clock register:"); 
-	for (i = 0 ; i < 4 ; i ++) printf("%04x, ", areg_act.clock[i]);				// 1: clock
+	printf(" -- measure register:"); printf("%04x,", areg_act.measure[0]);	printf("\n"); 
+	printf(" -- time_2_target register:"); 
+	for (i = 0 ; i < 2 ; i ++){
+		printf("%04x, ", areg_act.time_2_target[i]);
+	} 
 	printf("\n");     
-	printf(" -- seq register:"); 
-	for (i = 0 ; i < 4 ; i ++) printf("%04x,", areg_act.seq[i]);					// 2: log sequential number
-	printf("\n");     
-	printf(" -- record pointer register:"); 															// 3: record pointer - read only by client 
-	printf("%04x,", areg_act.rec_point[0]);
-	printf("\n");     
-	printf(" -- log rec register:"); 																			// log record - read only by client (!)
-	for (i = 0 ; i < 8 ; i ++) printf("%04x,", areg_act.log_rec[i]);
-	printf("\n");     
+	printf(" -- variance register:"); printf("%04x,", areg_act.variance[0]); printf("\n");     
+	printf(" -- target register:");	printf("%04x,", areg_act.target[0]);	printf("\n");     
+	printf(" -- actuator register:"); printf("%04x,", areg_act.actuator[0]);	printf("\n");     
+	printf(" -- dir register:"); printf("%04x,", areg_act.dir[0]);	printf("\n");     
+	printf(" -- act register:"); printf("%04x,", areg_act.act[0]);	printf("\n");     
+	printf(" -- method register:"); printf("%04x,", areg_act.method[0]);	printf("\n");     
+	
 }
 
 // --------------------------------------------  load cell reading task  ---------------------------------------------
 
 static void ads1231_task(void *arg){
-	// read and display laod cell reading
+	// read and display load cell reading
 	// exceute volume or weight measreuemt algorthim here 
 	// based  measureing method value (read with sempahore ) measure time 
 	// calculate slop of last 8 samples slop variance over the whole measurement
 	// compare predicted value to threshold 
 	// raise error if slope variance is too high
 	// save measureed time and  slop variacne in registers 
+	int loop_count = 0;
+	int print_count = 0;
   ADS1231::Sample sample;																										
 	while (true) {
-			if (adc.poll(sample)) {
-					ESP_LOGI(TAG,
-										"ADS1231 raw = %ld, normalized = %.7f",
-										static_cast<long>(sample.raw),
-										sample.normalized);
-			} 
-			else {
-					// At 10 SPS and a 100 ms task period, sometimes you may call
-					// slightly before DRDY goes low. This is normal.
-					ESP_LOGD(TAG, "ADS1231 not ready");
-			}
-			vTaskDelay(pdMS_TO_TICKS(100));
-	}
+		if (adc.poll(sample)) {
+				ESP_LOGI(TAG,
+									"ADS1231 raw = %ld, normalized = %.7f",
+									static_cast<long>(sample.raw),
+									sample.normalized);
+		} 
+		else {
+				// At 10 SPS and a 100 ms task period, sometimes you may call
+				// slightly before DRDY goes low. This is normal.
+				ESP_LOGD(TAG, "ADS1231 not ready");
+		}
+		vTaskDelay(pdMS_TO_TICKS(100));
+		if (loop_count++ > 500){
+			print_count++;
+			loop_count = 0;
+			printf(" task alive %d :\n", print_count); 
+		} 
+		
+	} 
 }
 
 // -------------------------------------------------  server response to client -----------------------------------------
 
 void reg_action(regs_action& areg_act){																	
-	int i;
 
 	// show register states  after client command received
 
-	/
 	int action_code = 10 * areg_act.func + areg_act.address;
 	printf("action code = %d \n",action_code);
 	switch(action_code){
-			case 40:																														// measure weight or volume 
+		case 60:																														// measure weight or volume 
+			printf(" write measure switch: %04x \n", areg_act.measure[0]);
 			areg_act.ret_code = 0;			
 		break;
 
-		case 41:														 																// write measured time to time_2_target register (2 words) - from load cell task (mutex)
+		case 41:														 																// read measured time to time_2_target register (2 words) - from load cell task (mutex)
+			printf(" read time totarget %04x %04x \n:", areg_act.time_2_target[0], areg_act.time_2_target[1]);
 			areg_act.ret_code = 0;			
 		break;
 
-		case 42:                                                         		// get last measurement variance , make sure client reads it only when measermement is completed 
+		case 42:                                                         		// read last measurement variance , make sure client reads it only when measermement is completed 
+			printf(" read variance %04x \n:", areg_act.variance[0]);
 			areg_act.ret_code = 0;			
 		break;
 
 		case 63:    																												// set weight measuement target - from register to load cels task (mutex)
+			printf(" write target weight %04x \n:", areg_act.target[0]);
 			areg_act.ret_code = 0;
 		break;
-
-		case 46:                                                        		// actuate using actuator and dir 
+		case 64:                                                        		// actuate using actuator and dir 
+			printf(" write actuator # %04x \n", areg_act.actuator[0]);
 			areg_act.ret_code = 0;	
 		break;
+		case 65:                                                        		// actuate using actuator and dir 
+			printf(" write motion dir %04x \n", areg_act.dir[0]);
+			areg_act.ret_code = 0;	
+		break;
+
+		case 66:                                                        		// actuate using actuator and dir 
+			printf(" write act %04x %04x \n", areg_act.actuator[0],areg_act.dir[0]);
+			areg_act.ret_code = 0;	
+		break;
+		case 67:                                                        		// actuate using actuator and dir 
+			printf(" write method %04x \n", areg_act.method[0]);
+			areg_act.ret_code = 0;	
+		break;
+
 	}
 }
 

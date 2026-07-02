@@ -1,4 +1,4 @@
-#include "ADS1231.h"
+#include "ads1231.h"
 
 #include "esp_rom_sys.h"
 
