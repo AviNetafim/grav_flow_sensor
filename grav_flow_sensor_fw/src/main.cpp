@@ -1,19 +1,3 @@
-/*
-load cell reading task - read every 100ms no average 
-communication taks - get command from client, serve it, send response to client - use queue to communicate with main task
-commands 
-- start measuring weight / volume
-  if weight: set tare, measure to incremental weight or timeout,save time diff 
-	if volume  weight for lower sensor, keep time , weight for upper sensor keep time save time diff 
--  measured time 
-- measure slop (flow) variance  for weight measurement only 
-- set weight increase 
-- actuator # 
-- actuation direction
-- act command 
-- measuring method - volume or weight 
-
-*/
 
 #include <stdio.h>
 #include <cstdio>																												// (?) need both?
@@ -34,8 +18,6 @@ commands
 static const char *SER_MAIN = "SER_MAIN";                               // Tag is a pointer to a string constant unify with others (?)
 static const char *TAG = "MAIN";																				// unify (?)
 
-const adc_channel_t agpio[4] = { ADC_CHANNEL_0, ADC_CHANNEL_1, ADC_CHANNEL_2, ADC_CHANNEL_3};  //delete (?)
-
 // static SemaphoreHandle_t adc_chans_mutex;														// modify for the required mutex
 
 QueueHandle_t q_protocol_to_main;																				
@@ -45,7 +27,7 @@ KeepCfg kc;
 ProgramParameters new_params(0,4,0,0);                                	// new configuration parameter - define required pramaters (?)
 ProgramParameters work_params(0,1800,0,0);                            	// working configuraiotn paramters 
 struct regs_action main_reg_act;
-LogRecord lr;																														// delete (?)	
+struct test_data td;												
 
 void show_reg_act(regs_action areg_act){
 	// show register states  after client command recevied - revise for new register structure
@@ -71,13 +53,6 @@ void show_reg_act(regs_action areg_act){
 // --------------------------------------------  load cell reading task  ---------------------------------------------
 
 static void ads1231_task(void *arg){
-	// read and display laod cell reading
-	// exceute volume or weight measreuemt algorthim here 
-	// based  measureing method value (read with sempahore ) measure time 
-	// calculate slop of last 8 samples slop variance over the whole measurement
-	// compare predicted value to threshold 
-	// raise error if slope variance is too high
-	// save measureed time and  slop variacne in registers 
   ADS1231::Sample sample;																										
 	while (true) {
 			if (adc.poll(sample)) {
@@ -102,27 +77,64 @@ void reg_action(regs_action& areg_act){
 
 	// show register states  after client command received
 
-	/
+// register map
+// 0 mode[1] 1 (weight) 0 (volume)
+// 1 target_weight[1] in 10mg units (up to 650g)  
+// 2 test[1] 1 to start a test , cleared by rtu 
+// 3 vol_stat[1] 0,1,2,3,4
+// 4 samples[10]
+// 5 test_time[1]  for both tests  im 0.1s  units 
+// 6 actuator[1]
+// 7 act_dir[1]
+// 8 actuate[1]
+	
+// 	 set mode 
+//   set weight target 
+//   test 
+//   read samples 
+//   read volume stat 
+//   read test time 
+//   set actuator and dir 
+
 	int action_code = 10 * areg_act.func + areg_act.address;
 	printf("action code = %d \n",action_code);
 	switch(action_code){
-			case 40:																														// measure weight or volume 
+		case 60:																														//set test mode: volume or weight 
+			printf("mode set to %d \n",areg_act.mode[0]);
 			areg_act.ret_code = 0;			
 		break;
 
-		case 41:														 																// write measured time to time_2_target register (2 words) - from load cell task (mutex)
+		case 61:														 																// set weight target
+			printf(" target weight is set to %d \n",areg_act.target_weight[0]);		
 			areg_act.ret_code = 0;			
 		break;
 
-		case 42:                                                         		// get last measurement variance , make sure client reads it only when measermement is completed 
+		case 62:                                                         		// start test
+			printf("start a test \n");
+			areg_act.test[0] = 0;		
 			areg_act.ret_code = 0;			
 		break;
 
-		case 63:    																												// set weight measuement target - from register to load cels task (mutex)
-			areg_act.ret_code = 0;
+		case 63:    																												// clear volume state regiser
+			printf("clear volume test state \n");
+			areg_act.vol_stat[0] = 0;		
+			areg_act.ret_code = 0;			
 		break;
 
-		case 46:                                                        		// actuate using actuator and dir 
+		case 43:                                                        		// read volume state regiser
+			printf("volume test state %d\n", areg_act.vol_stat[0]);
+			areg_act.ret_code = 0;	
+		break;
+
+		case 44:                                                        		// read weight samples buffer
+			printf("weight samples buffer :");
+			for( int i = 0 ; i < SAMPLES ; i ++ ) printf(" %0x", areg_act.samples[i]));
+			printf("\n");
+			areg_act.ret_code = 0;	
+		break;
+
+		case 54:                                                        		// read weight samples buffer
+			printf("test_time: %d", areg_act.test_time[0]);
 			areg_act.ret_code = 0;	
 		break;
 	}
@@ -132,7 +144,7 @@ void reg_action(regs_action& areg_act){
 
 extern "C" void app_main(void){ 
 
-  //  load configuration parameters
+  //  load configuration parameters from flash 
 
   vTaskDelay(pdMS_TO_TICKS(2000));
   ESP_ERROR_CHECK(nvs_flash_init());

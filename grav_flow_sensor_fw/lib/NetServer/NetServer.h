@@ -26,7 +26,8 @@
 #define TCP_PORT 502
 #define MAX_BUF   128
 
-const uint8_t REG_MAP_SIZE = 8;
+const uint8_t REG_MAP_SIZE = 9;                                         // number of registers                 
+const uint8_t SAMPLES = 10;                                             // weight samples size 
 
 #define myRTU 0x01                                                      // RTU ID
 #define RTU 0                                                           // command index of RTU                                              
@@ -46,14 +47,15 @@ typedef struct {                                                        // regis
 struct regs_action {
     uint8_t func;
     uint8_t address;
-    uint16_t measure[1] = {0x01};                                       // start time 
-    uint16_t time_2_target[2] = {0x02,0X03};                            // rtc data
-    uint16_t variance [1] = {0x04};                                     // last numbers: last, pointed record
-    uint16_t target[1] = {0x05};
-    uint16_t actuator[1] = {0x06};                                      // full log record 
-    uint16_t dir[1] = {0x07};                                           // full log record 
-    uint16_t act[2] = {0x08};                                           // actuate                     
-    uint16_t method[2] = {0x09};                                        // measruement method  weight = 0 volume = 1
+    uint16_t mode[1] = {0x01};                                          // measurement mode : weight or volume
+    uint16_t target_weight[1] = {0x02};                                 // in 10mg units 
+    uint16_t test[1] = {0x03};                                          // start test
+    uint16_t vol_stat[1] = {0x0f};                                      // volume test state
+    uint16_t samples[SAMPLES] = {0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e}; // weight samples buffer 
+    uint16_t test_time[1] = {0x11};                                     // volume and weight measire test time 
+    uint16_t actuator[1] = {0x12};                                      // actuator selection
+    uint16_t act_dir[1] = {0x13};                                           // actuator direction selection                     
+    uint16_t actuate[1] = {0x14};                                       // actuate selected actuator and dier 
     uint8_t  ret_code;
 };
 
@@ -84,16 +86,16 @@ class NetServer{
         uint8_t _payload_size;                                          // received command payload size  
         struct regs_action _reg_act;
         registers _regs[REG_MAP_SIZE] = {                               // register list metadata for protocol processing 
-            {1,&_reg_act.measure[0]},
-            {2,&_reg_act.time_2_target[0]},
-            {1,&_reg_act.variance[0]},            
-            {1,&_reg_act.target[0]},
+            {1,&_reg_act.mode[0]},
+            {1,&_reg_act.target_weight[0]},
+            {1,&_reg_act.test[0]},            
+            {1,&_reg_act.vol_stat[0]},
+            {SAMPLES,&_reg_act.samples[0]},
+            {1,&_reg_act.test_time[0]},
             {1,&_reg_act.actuator[0]},
-            {1,&_reg_act.dir[0]},
-            {1,&_reg_act.act[0]},
-            {1,&_reg_act.method[0]}
+            {1,&_reg_act.act_dir[0]},
+            {1,&_reg_act.actuate[0]}            
         };
 };
 
 #endif
- 
