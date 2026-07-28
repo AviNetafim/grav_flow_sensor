@@ -21,7 +21,7 @@ cfg_data = {
 
 def load_config_data():
 	try:
-		with open('ap_server_tetst_cfg.json', 'r') as outfile:
+		with open('ap_server_test_cfg.json', 'r') as outfile:
 			return json.load(outfile)
 	except Exception as err:
 		err_text = f"configuration file save error: {err=}, {type(err)=}"
@@ -32,7 +32,7 @@ def save_config_data(arg_dict):
 
 	json_object = json.dumps(arg_dict, indent=4)
 	try:
-		with open('ap_server_tetst_cfg.json', 'w') as outfile:
+		with open('ap_server_test_cfg.json', 'w') as outfile:
 			outfile.write(json_object)
 	except Exception as err:
 		print(f"configuration file savr error: {err=}, {type(err)=}")
