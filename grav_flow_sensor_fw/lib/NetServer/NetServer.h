@@ -51,7 +51,7 @@ struct regs_action {
     uint16_t target_weight[1] = {0x02};                                 // in 10mg units 
     uint16_t test[1] = {0x03};                                          // start test
     uint16_t vol_stat[1] = {0x0f};                                      // volume test state
-    uint16_t samples[SAMPLES] = {0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e}; // weight samples buffer 
+    uint16_t samples[SAMPLES] = {0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d}; // weight samples buffer 
     uint16_t test_time[1] = {0x11};                                     // volume and weight measire test time 
     uint16_t actuator[1] = {0x12};                                      // actuator selection
     uint16_t act_dir[1] = {0x13};                                           // actuator direction selection                     
