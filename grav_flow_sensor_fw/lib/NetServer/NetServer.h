@@ -26,8 +26,8 @@
 #define TCP_PORT 502
 #define MAX_BUF   128
 
-const uint8_t REG_MAP_SIZE = 9;                                         // number of registers                 
-const uint8_t SAMPLES = 10;                                             // weight samples size 
+static constexpr uint8_t REG_MAP_SIZE = 9;                                         // number of registers                 
+static constexpr uint8_t REG_SAMPLES = 32;                                             // weight samples size 
 
 #define myRTU 0x01                                                      // RTU ID
 #define RTU 0                                                           // command index of RTU                                              
@@ -50,11 +50,11 @@ struct regs_action {
     uint16_t mode[1] = {0x01};                                          // measurement mode : weight or volume
     uint16_t target_weight[1] = {0x02};                                 // in 10mg units 
     uint16_t test[1] = {0x03};                                          // start test
-    uint16_t vol_stat[1] = {0x0f};                                      // volume test state
-    uint16_t samples[SAMPLES] = {0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d}; // weight samples buffer 
-    uint16_t test_time[1] = {0x11};                                     // volume and weight measire test time 
-    uint16_t actuator[1] = {0x12};                                      // actuator selection
-    uint16_t act_dir[1] = {0x13};                                           // actuator direction selection                     
+    uint16_t vol_stat[2] = {0x04,0x05};                                 // volume test state
+    uint16_t weight_stat[3] = {0x06,0x07,0x08};                         // volume and weight measire test time 
+    uint16_t samples[REG_SAMPLES] = {0};                                // weight samples buffer 
+    uint16_t pointer[1] = {0x09};                                       // pointer to samlpes buffer
+    uint16_t actuator[2] = {0x0a,0x0b};                                 // actuator direction selection                     
     uint16_t actuate[1] = {0x14};                                       // actuate selected actuator and dier 
     uint8_t  ret_code;
 };
@@ -89,11 +89,11 @@ class NetServer{
             {1,&_reg_act.mode[0]},
             {1,&_reg_act.target_weight[0]},
             {1,&_reg_act.test[0]},            
-            {1,&_reg_act.vol_stat[0]},
-            {SAMPLES,&_reg_act.samples[0]},
-            {1,&_reg_act.test_time[0]},
-            {1,&_reg_act.actuator[0]},
-            {1,&_reg_act.act_dir[0]},
+            {2,&_reg_act.vol_stat[0]},
+            {3,&_reg_act.weight_stat[0]},
+            {REG_SAMPLES,&_reg_act.samples[0]},
+            {1,&_reg_act.pointer[0]},
+            {2,&_reg_act.actuator[0]},
             {1,&_reg_act.actuate[0]}            
         };
 };
