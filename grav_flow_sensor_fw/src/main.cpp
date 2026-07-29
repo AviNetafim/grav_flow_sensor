@@ -159,7 +159,7 @@ void reg_action(regs_action &areg_act)
     switch (action_code) {
         case 62:                                                                // start test (weight/volume)
             if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){
-                switch (areg_act.mode[0]){
+                switch (static_cast<TestType>(areg_act.mode[0])){
                     case TestType::weight:                                      // start weight test task
                         if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                             if (weight_test_data.test_state == TestState::run) {
@@ -179,7 +179,7 @@ void reg_action(regs_action &areg_act)
                         else areg_act.ret_code = 1;                                // cannot access data structure to start the test when retcode = 0 (!)    
                     break;
                 
-                    case test:: volume:
+                    case TestType:: volume:
                     break;
                 }    
             }
@@ -187,8 +187,8 @@ void reg_action(regs_action &areg_act)
 
         case 43:                                                                    // client polls the volume-test state
             if (xSemaphoreTake(volume_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-                areg_act.vol_state[0] = static_cast<uint16_t>(volume_test_data.test_state);
-                areg_act.vol_state[1] = static_cast<uint16_t>(volume_test_data.time2target_ds);
+                areg_act.vol_stat[0] = static_cast<uint16_t>(volume_test_data.test_state);
+                areg_act.vol_stat[1] = static_cast<uint16_t>(volume_test_data.time2target_ds);
                 xSemaphoreGive(weight_test_mutex);
             } 
             else areg_act.ret_code = 1;
@@ -196,9 +196,9 @@ void reg_action(regs_action &areg_act)
 
         case 44:                                                                    // client polls the weight-test state
             if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-                areg_act.weight_state[0] = static_cast<uint16_t>(weight_test_data.test_state);
-                areg_act.weight_state[1] = static_cast<uint16_t>(weight_test_data.time2target_ds);
-                areg_act.weight_state[2] = static_cast<uint16_t>(weight_test_data.sample_count);
+                areg_act.weight_stat[0] = static_cast<uint16_t>(weight_test_data.test_state);
+                areg_act.weight_stat[1] = static_cast<uint16_t>(weight_test_data.time2target_ds);
+                areg_act.weight_stat[2] = static_cast<uint16_t>(weight_test_data.sample_count);
                 xSemaphoreGive(weight_test_mutex);
             } 
             else areg_act.ret_code = 1;
@@ -207,7 +207,7 @@ void reg_action(regs_action &areg_act)
         case 45:                                                                     //  copy sample buffer segment to samples buffer register
             if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                 for (int i = 0  ; i < REG_SAMPLES ; i++){
-                    areg_act.samples[i] = weight_test_data.samples[areg_act.pointer[0]+i]
+                    areg_act.samples[i] = weight_test_data.samples[areg_act.pointer[0]+i];
                 }
                 xSemaphoreGive(weight_test_mutex);
             }
