@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -28,8 +29,8 @@ static constexpr gpio_num_t VOLUME_LOW_GPIO = GPIO_NUM_20;
 static constexpr gpio_num_t VOLUME_HIGH_GPIO = GPIO_NUM_19;
 static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 300;
 static constexpr uint16_t VOLUME_TIMEOUT_HIGH_DS = 300;
-static constexpr uint32_t VOLUME_GPIO_SAMPLE_PERIOD_MS = 25;
-static constexpr int64_t VOLUME_GPIO_STABLE_LOW_US = 100000;
+static constexpr EventBits_t VOLUME_LOW_EDGE_BIT = BIT0;
+static constexpr EventBits_t VOLUME_HIGH_EDGE_BIT = BIT1;
 
 enum class TestState : uint16_t {
     stop = 0,
@@ -67,6 +68,8 @@ static SemaphoreHandle_t weight_test_mutex;
 static TaskHandle_t weight_test_task_handle;
 static SemaphoreHandle_t volume_test_mutex;
 static TaskHandle_t volume_test_task_handle;
+static EventGroupHandle_t volume_edge_events;
+static volatile uint32_t volume_test_phase = 2; // inactive
 static WeightTestData weight_test_data = {
     TestState::stop, 0, 0, WEIGHT_TEST_TIMEOUT_DS, 0, {0}
 };
@@ -74,57 +77,46 @@ static VolumeTestData volume_test_data = {
     TestState::stop, 0, VOLUME_TIMEOUT_LOW_DS, VOLUME_TIMEOUT_HIGH_DS
 };
 
+static void IRAM_ATTR volume_low_edge_isr(void *arg)
+{
+    (void)arg;
+    if (volume_test_phase != 0) {
+        return;
+    }
+
+    // Arm the high sensor immediately so a fast GPIO19 edge is not lost
+    // while the volume task is waking up.
+    volume_test_phase = 1;
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    xEventGroupSetBitsFromISR(volume_edge_events, VOLUME_LOW_EDGE_BIT,
+                              &higher_priority_task_woken);
+    if (higher_priority_task_woken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
+static void IRAM_ATTR volume_high_edge_isr(void *arg)
+{
+    (void)arg;
+    if (volume_test_phase != 1) {
+        return;
+    }
+
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    xEventGroupSetBitsFromISR(volume_edge_events, VOLUME_HIGH_EDGE_BIT,
+                              &higher_priority_task_woken);
+    if (higher_priority_task_woken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
 static void stop_volume_test(uint16_t time2fill_ds)
 {
+    volume_test_phase = 2;
     if (xSemaphoreTake(volume_test_mutex, portMAX_DELAY) == pdTRUE) {
         volume_test_data.test_state = TestState::stop;
         volume_test_data.time2fill_ds = time2fill_ds;
         xSemaphoreGive(volume_test_mutex);
-    }
-}
-
-static bool wait_for_stable_low(gpio_num_t gpio, uint16_t timeout_ds,
-                                int64_t timeout_started_us,
-                                int64_t &low_started_us,
-                                int64_t fill_started_us = 0)
-{
-    const int64_t timeout_us = static_cast<int64_t>(timeout_ds) * 100000;
-    bool high_seen = gpio_get_level(gpio) != 0;
-    int64_t candidate_low_us = 0;
-    TickType_t next_sample = xTaskGetTickCount();
-
-    while (true) {
-        vTaskDelayUntil(
-            &next_sample, pdMS_TO_TICKS(VOLUME_GPIO_SAMPLE_PERIOD_MS));
-        const int64_t now_us = esp_timer_get_time();
-        const bool is_low = gpio_get_level(gpio) == 0;
-
-        if (fill_started_us != 0) {
-            const uint16_t elapsed_ds = static_cast<uint16_t>(
-                std::min<int64_t>((now_us - fill_started_us) / 100000,
-                                  UINT16_MAX));
-            if (xSemaphoreTake(volume_test_mutex, portMAX_DELAY) == pdTRUE) {
-                volume_test_data.time2fill_ds = elapsed_ds;
-                xSemaphoreGive(volume_test_mutex);
-            }
-        }
-
-        if (!is_low) {
-            high_seen = true;
-            candidate_low_us = 0;
-        } else if (high_seen) {
-            if (candidate_low_us == 0) {
-                candidate_low_us = now_us;
-            } else if (now_us - candidate_low_us >=
-                       VOLUME_GPIO_STABLE_LOW_US) {
-                low_started_us = candidate_low_us;
-                return true;
-            }
-        }
-
-        if (now_us - timeout_started_us >= timeout_us) {
-            return false;
-        }
     }
 }
 
@@ -147,24 +139,39 @@ static void volume_test_task(void *arg)
         ESP_LOGI(TAG, "Volume test started: low timeout=%u ds, high timeout=%u ds",
                  timeout_low_ds, timeout_high_ds);
 
-        const int64_t low_wait_started_us = esp_timer_get_time();
-        int64_t low_edge_us = 0;
-        if (!wait_for_stable_low(VOLUME_LOW_GPIO, timeout_low_ds,
-                                 low_wait_started_us, low_edge_us)) {
+        const EventBits_t low_result = xEventGroupWaitBits(
+            volume_edge_events, VOLUME_LOW_EDGE_BIT, pdTRUE, pdFALSE,
+            pdMS_TO_TICKS(static_cast<uint32_t>(timeout_low_ds) * 100U));
+
+        if ((low_result & VOLUME_LOW_EDGE_BIT) == 0) {
             stop_volume_test(0);
             ESP_LOGI(TAG, "Volume test stopped: GPIO20 timeout");
             continue;
         }
 
-        int64_t high_edge_us = 0;
-        const bool high_edge_reached = wait_for_stable_low(
-            VOLUME_HIGH_GPIO, timeout_high_ds, low_edge_us, high_edge_us,
-            low_edge_us);
-        const int64_t stopped_us =
-            high_edge_reached ? high_edge_us : esp_timer_get_time();
-        const uint16_t elapsed_ds = static_cast<uint16_t>(
-            std::min<int64_t>((stopped_us - low_edge_us) / 100000,
-                              UINT16_MAX));
+        const int64_t fill_started_us = esp_timer_get_time();
+        bool high_edge_reached = false;
+        uint16_t elapsed_ds = 0;
+
+        while (elapsed_ds < timeout_high_ds) {
+            const EventBits_t high_result = xEventGroupWaitBits(
+                volume_edge_events, VOLUME_HIGH_EDGE_BIT, pdTRUE, pdFALSE,
+                pdMS_TO_TICKS(100));
+
+            elapsed_ds = static_cast<uint16_t>(std::min<int64_t>(
+                (esp_timer_get_time() - fill_started_us) / 100000,
+                UINT16_MAX));
+
+            if (xSemaphoreTake(volume_test_mutex, portMAX_DELAY) == pdTRUE) {
+                volume_test_data.time2fill_ds = elapsed_ds;
+                xSemaphoreGive(volume_test_mutex);
+            }
+
+            if ((high_result & VOLUME_HIGH_EDGE_BIT) != 0) {
+                high_edge_reached = true;
+                break;
+            }
+        }
 
         stop_volume_test(elapsed_ds);
         ESP_LOGI(TAG, "Volume test stopped: %s after %u ds",
@@ -304,10 +311,18 @@ void reg_action(regs_action &areg_act)
                                 xSemaphoreGive(volume_test_mutex);
                                 break;
                             }
+                            gpio_intr_disable(VOLUME_LOW_GPIO);
+                            gpio_intr_disable(VOLUME_HIGH_GPIO);
+                            xEventGroupClearBits(
+                                volume_edge_events,
+                                VOLUME_LOW_EDGE_BIT | VOLUME_HIGH_EDGE_BIT);
                             volume_test_data.test_state = TestState::run;
                             volume_test_data.time2fill_ds = 0;
                             volume_test_data.timeout_low_ds = VOLUME_TIMEOUT_LOW_DS;
                             volume_test_data.timeout_high_ds = VOLUME_TIMEOUT_HIGH_DS;
+                            volume_test_phase = 0;
+                            gpio_intr_enable(VOLUME_LOW_GPIO);
+                            gpio_intr_enable(VOLUME_HIGH_GPIO);
                             xSemaphoreGive(volume_test_mutex);
                             xTaskNotifyGive(volume_test_task_handle);
                         }
@@ -373,6 +388,8 @@ extern "C" void app_main(void)
     configASSERT(weight_test_mutex != nullptr);
     volume_test_mutex = xSemaphoreCreateMutex();
     configASSERT(volume_test_mutex != nullptr);
+    volume_edge_events = xEventGroupCreate();
+    configASSERT(volume_edge_events != nullptr);
 
     gpio_config_t volume_input_config = {};
     volume_input_config.pin_bit_mask =
@@ -380,8 +397,18 @@ extern "C" void app_main(void)
     volume_input_config.mode = GPIO_MODE_INPUT;
     volume_input_config.pull_up_en = GPIO_PULLUP_ENABLE;
     volume_input_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    volume_input_config.intr_type = GPIO_INTR_DISABLE;
+    volume_input_config.intr_type = GPIO_INTR_NEGEDGE;
     ESP_ERROR_CHECK(gpio_config(&volume_input_config));
+
+    const esp_err_t isr_service_result = gpio_install_isr_service(0);
+    if (isr_service_result != ESP_OK &&
+        isr_service_result != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(isr_service_result);
+    }
+    ESP_ERROR_CHECK(gpio_isr_handler_add(
+        VOLUME_LOW_GPIO, volume_low_edge_isr, nullptr));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(
+        VOLUME_HIGH_GPIO, volume_high_edge_isr, nullptr));
 
     q_protocol_to_main = xQueueCreate(10, sizeof(regs_action));
     q_main_to_protocol = xQueueCreate(10, sizeof(regs_action));
