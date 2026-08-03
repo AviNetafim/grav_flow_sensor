@@ -50,10 +50,43 @@ register map
 7 act_dir[1]
 8 actuate[1]
 
+volume test task 
+start with notification as 
 
+volume_test_task 
+similar to weight_test_task.
+starts in reg action case 62, ,case TestType::volume
+waits for gpio20 negative edge stop at timeout_low
+start measure time until negative edge og gpio19  or timeout_high
+stop process when gpio19 negative edge is reached or timeout_low or timeout_high
+test data strcutre
+ - test_state (run/ stop)
+ - time2tfill 
+ - timeout_low
+ - timeout_high
 
+reg_action 43 read state and time2fill
  
+pc app:
+tkinter gui for  flow sensor client application 
 
+main window title : gravimetric flow sensor test bench
 
+radio buttons:  test method: weight / volume
+
+entry fields:
+  weight target,  float,  < 80g,   eneabled when test method == weight
+  vessel volume,  float,  < 100cc  eneabled when test method == volume
+  weight timeout, integer, < 1000 ds 
+  volume timeout, integer, < 1000 ds 
+
+display fields
+  test time,  updated by run_test function if time value  < weight/volume timetout  otherwise  display error message
+  flow  (test time/ weight target or vessle volume)
+  error message 
+
+buttons
+start_test: run empty function run_test() 
+get samples: run empty funvtion get samples()
 
 

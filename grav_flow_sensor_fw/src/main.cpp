@@ -21,6 +21,7 @@ static const char *TAG = "MAIN";
 
 static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;
+static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 3000000;
 static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900; // 90 s, must be < 100 s
 static constexpr int64_t CAL_NUM = 12049;
 static constexpr int64_t CAL_DEN = 100;
@@ -197,6 +198,7 @@ static void weight_test_task(void *arg){
         const int64_t target_delta_raw =                                    // and target increment in raw 
             static_cast<int64_t>(target_weight_10mg) * CAL_NUM / CAL_DEN;
         const int64_t started_us = esp_timer_get_time();                    // start_us (since timer was initialized)
+        int64_t last_weight_print_us = started_us;
         TickType_t next_wake = xTaskGetTickCount();                         // rtos ticks since task was scheduled
 
         ESP_LOGI(TAG, "Weight test started: target=%u x 10 mg, timeout=%u ds",
@@ -211,6 +213,13 @@ static void weight_test_task(void *arg){
             if (adc.poll(adc_sample)) {
                 const int32_t weight_10mg = static_cast<int32_t>(
                     (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_DEN / CAL_NUM);                    
+
+                const int64_t now_us = esp_timer_get_time();
+                if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
+                    ESP_LOGI(TAG, "Measured weight: %.2f g",
+                             static_cast<double>(weight_10mg) / 100.0);
+                    last_weight_print_us = now_us;
+                }
 
                 if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
                     if (weight_test_data.sample_count <                                
