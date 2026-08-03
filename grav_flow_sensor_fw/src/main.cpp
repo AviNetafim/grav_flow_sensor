@@ -292,6 +292,9 @@ void reg_action(regs_action &areg_act)
                 areg_act.ret_code = 3;                                          // invalid mode
             }
         break;
+        case 61:                                                                // set target weight (10mg units)
+            areg_act.ret_code = 0;
+        break;
         case 62:                                                                // start test (weight/volume)
             if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){
                 switch (static_cast<TestType>(areg_act.mode[0])){
