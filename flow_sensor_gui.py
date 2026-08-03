@@ -4,6 +4,13 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
+from tcp_com import TcpCom
+
+
+ESP32_IP = "192.168.4.1"
+PORT = 502
+SOCKET_TIMEOUT = 3
+
 
 class FlowSensorGUI:
     """Main application window for configuring and displaying a flow test."""
@@ -16,6 +23,9 @@ class FlowSensorGUI:
         self.root.resizable(True, True)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+
+        self.tc = TcpCom(ESP32_IP, PORT, SOCKET_TIMEOUT)
+        self.tc.print_com = False
 
         self._configure_styles()
 
@@ -196,8 +206,19 @@ class FlowSensorGUI:
         """Start a test. Add flow-sensor client code here."""
         if self._get_active_settings() is None:
             return
-        # TODO: Start the sensor test and call update_test_result(elapsed_time).
-        pass
+        mode = 0 if self.test_method.get() == "weight" else 1
+        error_code = self.tc.write(
+            rtu=1, address=0, index=0, size=1, payload=[mode]
+        )
+        if error_code != 0:
+            self.error_message.set("Error while setting test mode on controller.")
+            return
+
+        error_code = self.tc.write(
+            rtu=1, address=2, index=0, size=1, payload=[1]
+        )
+        if error_code != 0:
+            self.error_message.set("Error while starting test on controller.")
 
     def get_samples(self) -> None:
         """Get sensor samples. Add flow-sensor client code here."""

@@ -75,7 +75,7 @@ if __name__ == '__main__':
 	elif len(sys.argv) == 3:
 		if sys.argv[1] == '-mode':
 			sys.argv[2]
-			if sys.argv[2] == 'w' > 0 or sys.argv[2] == 'v':
+			if sys.argv[2] == 'w' or sys.argv[2] == 'v':
 				mode = 'wv'.find(sys.argv[2])
 				error_code = tc.write(rtu=1, address= 0, index = 0, size=1 , payload=[mode])
 				if error_code != 0:

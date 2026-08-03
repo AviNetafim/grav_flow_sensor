@@ -284,6 +284,14 @@ void reg_action(regs_action &areg_act)
     areg_act.ret_code = 0;
 
     switch (action_code) {
+        case 60:                                                                // set measurement mode (weight/volume)
+            if (areg_act.mode[0] == static_cast<uint16_t>(TestType::weight) ||
+                areg_act.mode[0] == static_cast<uint16_t>(TestType::volume)) {
+                areg_act.ret_code = 0;
+            } else {
+                areg_act.ret_code = 3;                                          // invalid mode
+            }
+        break;
         case 62:                                                                // start test (weight/volume)
             if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){
                 switch (static_cast<TestType>(areg_act.mode[0])){
