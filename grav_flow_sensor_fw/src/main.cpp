@@ -27,8 +27,8 @@ static constexpr int64_t CAL_NUM = 12049;
 static constexpr int64_t CAL_DEN = 100;
 static constexpr gpio_num_t VOLUME_LOW_GPIO = GPIO_NUM_20;
 static constexpr gpio_num_t VOLUME_HIGH_GPIO = GPIO_NUM_19;
-static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 300;
-static constexpr uint16_t VOLUME_TIMEOUT_HIGH_DS = 300;
+static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 100;
+static constexpr uint16_t VOLUME_TIMEOUT_HIGH_DS = 600;
 static constexpr uint32_t VOLUME_GPIO_SAMPLE_PERIOD_MS = 25;
 static constexpr int64_t VOLUME_GPIO_STABLE_LOW_US = 100000;
 
@@ -129,39 +129,38 @@ static bool wait_for_stable_low(gpio_num_t gpio, uint16_t timeout_ds,
     }
 }
 
-static void volume_test_task(void *arg)
-{
-    (void)arg;
+static void volume_test_task(void *arg) { 
+    void)arg;
 
     while (true) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                                    // wait for reg_action signal to start task
 
         uint16_t timeout_low_ds;
         uint16_t timeout_high_ds;
         if (xSemaphoreTake(volume_test_mutex, portMAX_DELAY) != pdTRUE) {
             continue;
         }
-        timeout_low_ds = volume_test_data.timeout_low_ds;
+        timeout_low_ds = volume_test_data.timeout_low_ds;                           // update local copies of timeouts
         timeout_high_ds = volume_test_data.timeout_high_ds;
         xSemaphoreGive(volume_test_mutex);
 
-        ESP_LOGI(TAG, "Volume test started: low timeout=%u ds, high timeout=%u ds",
+        ESP_LOGI(TAG, "Volume test started: low timeout=%u ds, high timeout=%u ds", 
                  timeout_low_ds, timeout_high_ds);
 
         const int64_t low_wait_started_us = esp_timer_get_time();
         int64_t low_edge_us = 0;
-        if (!wait_for_stable_low(VOLUME_LOW_GPIO, timeout_low_ds,
+        if (!wait_for_stable_low(VOLUME_LOW_GPIO, timeout_low_ds,                   // wait for GPIO20 to go low for at least 100 ms 
                                  low_wait_started_us, low_edge_us)) {
-            stop_volume_test(0);
+            stop_volume_test(0);                                                    // gpio20 timeout, stop test and set time2fill_ds to 0
             ESP_LOGI(TAG, "Volume test stopped: GPIO20 timeout");
             continue;
         }
 
         int64_t high_edge_us = 0;
-        const bool high_edge_reached = wait_for_stable_low(
+        const bool high_edge_reached = wait_for_stable_low(                         // wait for GPIO19 to go low for at least 100 ms      
             VOLUME_HIGH_GPIO, timeout_high_ds, low_edge_us, high_edge_us,
             low_edge_us);
-        const int64_t stopped_us =
+        const int64_t stopped_us =                                                  // stop time is either GPIO19 edge or timeout 
             high_edge_reached ? high_edge_us : esp_timer_get_time();
         const uint16_t elapsed_ds = static_cast<uint16_t>(
             std::min<int64_t>((stopped_us - low_edge_us) / 100000,
@@ -295,10 +294,10 @@ void reg_action(regs_action &areg_act)
         case 61:                                                                // set target weight (10mg units)
             areg_act.ret_code = 0;
         break;
-        case 62:                                                                // start test (weight/volume)
+        case 62:                                                                    // start test (weight/volume)
             if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){
                 switch (static_cast<TestType>(areg_act.mode[0])){
-                    case TestType::weight:                                      // start weight test task
+                    case TestType::weight:                                          // start weight test task
                         if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                             if (weight_test_data.test_state == TestState::run) {
                                 areg_act.ret_code = 2;                              // task already run
@@ -319,7 +318,7 @@ void reg_action(regs_action &areg_act)
                 
                     case TestType::volume:
                         if (xSemaphoreTake(volume_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
-                            if (volume_test_data.test_state == TestState::run) {
+                            if (volume_test_data.test_state == TestState::run) {    
                                 areg_act.ret_code = 2;
                                 xSemaphoreGive(volume_test_mutex);
                                 break;
@@ -329,7 +328,7 @@ void reg_action(regs_action &areg_act)
                             volume_test_data.timeout_low_ds = VOLUME_TIMEOUT_LOW_DS;
                             volume_test_data.timeout_high_ds = VOLUME_TIMEOUT_HIGH_DS;
                             xSemaphoreGive(volume_test_mutex);
-                            xTaskNotifyGive(volume_test_task_handle);
+                            xTaskNotifyGive(volume_test_task_handle);               // start volume test task
                         }
                         else areg_act.ret_code = 1;
                     break;
@@ -375,7 +374,7 @@ void reg_action(regs_action &areg_act)
         break;
 
     default:
-        areg_act.ret_code = 9;
+        areg_act.ret_code = 0;
         break;
     }
 }

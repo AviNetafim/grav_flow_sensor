@@ -2,6 +2,7 @@
 
 import tkinter as tk
 import tkinter.font as tkfont
+import time
 from tkinter import ttk
 
 from tcp_com import TcpCom
@@ -204,8 +205,10 @@ class FlowSensorGUI:
 
     def run_test(self) -> None:
         """Start a test. Add flow-sensor client code here."""
-        if self._get_active_settings() is None:
+        settings = self._get_active_settings()
+        if settings is None:
             return
+        target, _ = settings
         mode = 0 if self.test_method.get() == "weight" else 1
         error_code = self.tc.write(
             rtu=1, address=0, index=0, size=1, payload=[mode]
@@ -214,11 +217,61 @@ class FlowSensorGUI:
             self.error_message.set("Error while setting test mode on controller.")
             return
 
+        if mode == 0:                                                               # weight mode
+            target_10mg = round(target * 100)
+            print(f"Setting weight target to {target_10mg} (10 mg units)")
+            error_code = self.tc.write(
+                rtu=1, address=1, index=0, size=1, payload=[target_10mg]
+            )
+            if error_code != 0:
+                self.error_message.set(
+                    "Error while setting weight target on controller."
+                )
+                return
+
         error_code = self.tc.write(
             rtu=1, address=2, index=0, size=1, payload=[1]
         )
         if error_code != 0:
             self.error_message.set("Error while starting test on controller.")
+            return
+
+        if mode == 1:
+            _, timeout = settings
+            deadline = time.monotonic() + timeout / 10
+            self.root.after(
+                1000, self._poll_volume_test, target, timeout, deadline
+            )
+
+    def _poll_volume_test(
+        self, volume: float, timeout: int, deadline: float
+    ) -> None:
+        if time.monotonic() >= deadline:
+            self.error_message.set("volume test timeout")
+            return
+
+        error_code, payload = self.tc.read(
+            rtu=1, address=3, index=0, size=2
+        )
+        if error_code != 0 or len(payload) < 2:
+            self.error_message.set("Error while reading volume test state.")
+            return
+
+        if payload[0] != 0:
+            self.root.after(
+                1000, self._poll_volume_test, volume, timeout, deadline
+            )
+            return
+
+        time_to_fill = payload[1]
+        self.test_time.set(str(time_to_fill))
+        if time_to_fill <= 0 or time_to_fill >= timeout:
+            self.flow.set("--")
+            self.error_message.set("volume test timeout")
+            return
+
+        self.flow.set(f"{volume / time_to_fill * 36:.3f}")
+        self.error_message.set("")
 
     def get_samples(self) -> None:
         """Get sensor samples. Add flow-sensor client code here."""
