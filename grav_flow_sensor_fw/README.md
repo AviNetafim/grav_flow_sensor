@@ -89,3 +89,4 @@ buttons
 start_test: run empty function run_test() 
 get samples: run empty funvtion get samples()
 
+delete unecceasry register action entries , code resets when defualt

@@ -20,17 +20,17 @@ static const char *SER_MAIN = "SER_MAIN";
 static const char *TAG = "MAIN";
 
 static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
-static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;
-static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 3000000;
+static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
+static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 3000000;                              // 3 s print period for weight test task     
 static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900; // 90 s, must be < 100 s
-static constexpr int64_t CAL_NUM = 12049;
-static constexpr int64_t CAL_DEN = 100;
+static constexpr int64_t CAL_NUM = 12049;                                               // calibration factors for 10 mg units, derived from calibration with known weight
+static constexpr int64_t CAL_DEN = 100;                                                 
 static constexpr gpio_num_t VOLUME_LOW_GPIO = GPIO_NUM_20;
 static constexpr gpio_num_t VOLUME_HIGH_GPIO = GPIO_NUM_19;
-static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 100;
-static constexpr uint16_t VOLUME_TIMEOUT_HIGH_DS = 600;
-static constexpr uint32_t VOLUME_GPIO_SAMPLE_PERIOD_MS = 25;
-static constexpr int64_t VOLUME_GPIO_STABLE_LOW_US = 100000;
+static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 200;                                  // 10s to start filling, must be < 100s 
+static constexpr uint16_t VOLUME_TIMEOUT_HIGH_DS = 600;                                 // 60s to fill, must be < 100s    
+static constexpr uint32_t VOLUME_GPIO_SAMPLE_PERIOD_MS = 25;                            // 25 ms sample period for volume test task 
+static constexpr int64_t VOLUME_GPIO_STABLE_LOW_US = 100000;                            // 100 ms stable low to detect edge 
 
 enum class TestState : uint16_t {
     stop = 0,
@@ -75,8 +75,7 @@ static VolumeTestData volume_test_data = {
     TestState::stop, 0, VOLUME_TIMEOUT_LOW_DS, VOLUME_TIMEOUT_HIGH_DS
 };
 
-static void stop_volume_test(uint16_t time2fill_ds)
-{
+static void stop_volume_test(uint16_t time2fill_ds) {                               // stop volume test task and update time2fill_ds 
     if (xSemaphoreTake(volume_test_mutex, portMAX_DELAY) == pdTRUE) {
         volume_test_data.test_state = TestState::stop;
         volume_test_data.time2fill_ds = time2fill_ds;
@@ -87,20 +86,20 @@ static void stop_volume_test(uint16_t time2fill_ds)
 static bool wait_for_stable_low(gpio_num_t gpio, uint16_t timeout_ds,
                                 int64_t timeout_started_us,
                                 int64_t &low_started_us,
-                                int64_t fill_started_us = 0)
-{
+                                int64_t fill_started_us = 0) 
+{                                                                                  // wait for gpio to go low and stay low for at least 100 ms
     const int64_t timeout_us = static_cast<int64_t>(timeout_ds) * 100000;
     bool high_seen = gpio_get_level(gpio) != 0;
     int64_t candidate_low_us = 0;
-    TickType_t next_sample = xTaskGetTickCount();
+    TickType_t next_sample = xTaskGetTickCount();                                  // rtos ticks since task was scheduled
 
     while (true) {
         vTaskDelayUntil(
-            &next_sample, pdMS_TO_TICKS(VOLUME_GPIO_SAMPLE_PERIOD_MS));
-        const int64_t now_us = esp_timer_get_time();
-        const bool is_low = gpio_get_level(gpio) == 0;
+            &next_sample, pdMS_TO_TICKS(VOLUME_GPIO_SAMPLE_PERIOD_MS));           // wait for next sample period  
+        const int64_t now_us = esp_timer_get_time();                              // time since timer was initialized                                   
+        const bool is_low = gpio_get_level(gpio) == 0;                            // read gpio level  
 
-        if (fill_started_us != 0) {
+        if (fill_started_us != 0) {                                               // if fill_started_us is provided, update time2fill_ds in volume_test_data  
             const uint16_t elapsed_ds = static_cast<uint16_t>(
                 std::min<int64_t>((now_us - fill_started_us) / 100000,
                                   UINT16_MAX));
@@ -130,7 +129,7 @@ static bool wait_for_stable_low(gpio_num_t gpio, uint16_t timeout_ds,
 }
 
 static void volume_test_task(void *arg) { 
-    void)arg;
+    (void)arg;
 
     while (true) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                                    // wait for reg_action signal to start task
