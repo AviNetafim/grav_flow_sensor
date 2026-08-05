@@ -257,9 +257,9 @@ void show_reg_act(regs_action areg_act){
 
 	// show register states after client before and after ommand received, add configuration parameter to show registers (!)
 	int i;
-	printf("function = %d, address: = %d \n", areg_act.func,areg_act.address);	 // decoded required function and address
+	printf("\nfunction = %d, address: = %d \n", areg_act.func,areg_act.address);	 // decoded required function and address
 	printf(" -- mode :"); printf("%04x \n", areg_act.mode[0]);
-	printf(" -- target weight : %04x", areg_act.target_weight[0]); 
+	printf(" -- target weight : %04x \n", areg_act.target_weight[0]); 
 	printf(" -- test:"); printf("%04x \n", areg_act.test[0]);
 	printf(" -- vol test stat:");
     for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.vol_stat[i]);
@@ -268,7 +268,7 @@ void show_reg_act(regs_action areg_act){
     for (i = 0 ; i < 3 ; i ++)	printf(" %04x", areg_act.weight_stat[i]);
     printf("\n");     
 	printf(" -- samples:");
-	for (i = 0 ; i < REG_SAMPLES ; i ++)	printf(" %04x", areg_act.samples[i]);
+	for (i = 0 ; i < REG_SAMPLES ; i ++) printf(" %04x", areg_act.samples[i]);
 	printf("\n");     
 	printf(" -- actuator:");
     for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.actuator[i]);
@@ -282,19 +282,21 @@ void reg_action(regs_action &areg_act)
     areg_act.ret_code = 0;
 
     switch (action_code) {
-        case 60:                                                                // set measurement mode (weight/volume)
+        case 60:                                                                    // set measurement mode (weight/volume)
             if (areg_act.mode[0] == static_cast<uint16_t>(TestType::weight) ||
                 areg_act.mode[0] == static_cast<uint16_t>(TestType::volume)) {
                 areg_act.ret_code = 0;
             } else {
-                areg_act.ret_code = 3;                                          // invalid mode
+                areg_act.ret_code = 3;                                              // invalid mode
             }
         break;
-        case 61:                                                                // set target weight (10mg units)
+        case 61:                                                                    // set target weight (10mg units)
             areg_act.ret_code = 0;
         break;
         case 62:                                                                    // start test (weight/volume)
-            if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){
+            if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){  
+                areg_act.test[0] = static_cast<uint16_t>(TestState::stop);          // clear tes
+                areg_act.ret_code = 0;       
                 switch (static_cast<TestType>(areg_act.mode[0])){
                     case TestType::weight:                                          // start weight test task
                         if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
@@ -329,15 +331,15 @@ void reg_action(regs_action &areg_act)
                             xSemaphoreGive(volume_test_mutex);
                             xTaskNotifyGive(volume_test_task_handle);               // start volume test task
                         }
-                        else areg_act.ret_code = 1;
+                        else areg_act.ret_code = 1;                                 //
                     break;
 
                     default:
-                        areg_act.ret_code = 3;
+                        areg_act.ret_code = 3;                                      // invalid mode for test start
                     break;
                 }    
             }
-            else areg_act.ret_code = 3;
+            else areg_act.ret_code = 3;                                             // invalid test command
         break;
 
         case 43:                                                                    // client polls the volume-test state
@@ -432,6 +434,7 @@ extern "C" void app_main(void)
         xQueueReceive(q_protocol_to_main, &main_reg_act, portMAX_DELAY);
         show_reg_act(main_reg_act);
         reg_action(main_reg_act);
+        show_reg_act(main_reg_act);
         xQueueSend(q_main_to_protocol, &main_reg_act, portMAX_DELAY);
     }
 }
