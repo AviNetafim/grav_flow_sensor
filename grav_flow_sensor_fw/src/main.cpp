@@ -295,7 +295,6 @@ void reg_action(regs_action &areg_act)
         break;
         case 62:                                                                    // start test (weight/volume)
             if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){  
-                areg_act.test[0] = static_cast<uint16_t>(TestState::stop);          // clear tes
                 areg_act.ret_code = 0;       
                 switch (static_cast<TestType>(areg_act.mode[0])){
                     case TestType::weight:                                          // start weight test task
