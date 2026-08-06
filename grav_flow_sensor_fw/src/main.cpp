@@ -360,6 +360,7 @@ void reg_action(regs_action &areg_act)
                             const int32_t weight_10mg = static_cast<int32_t>(
                                 static_cast<int64_t>(adc_sample.raw) * CAL_DEN / CAL_NUM);
                             areg_act.samples[0] = static_cast<uint16_t>(weight_10mg);
+                            printf("Calibration reading: %.2f g\n", static_cast<double>(weight_10mg) / 100.0);
                         } else {
                             areg_act.ret_code = 1;
                         }
