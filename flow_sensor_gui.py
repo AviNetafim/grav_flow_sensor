@@ -30,15 +30,21 @@ class FlowSensorGUI:
 
         self._configure_styles()
 
-        self.test_method = tk.StringVar(value="weight")
+        self.test_method = tk.IntVar(value=0)
         self.weight_target = tk.StringVar()
         self.vessel_volume = tk.StringVar()
         self.weight_timeout = tk.StringVar()
         self.volume_timeout = tk.StringVar()
 
         self.test_time = tk.StringVar(value="--")
+        self.test_progress_time = tk.StringVar(value="--")
+        self.sample_count = tk.StringVar(value="--")
         self.flow = tk.StringVar(value="--")
+        self.actual_weight = tk.StringVar(value="--")
         self.error_message = tk.StringVar()
+        self.weight_count = 0
+        self._test_generation = 0
+        self._test_active = False
 
         self._build_ui()
         self._update_method_fields()
@@ -67,27 +73,33 @@ class FlowSensorGUI:
         container.rowconfigure(3, weight=1)
 
         method_frame = ttk.LabelFrame(container, text="Test method", padding=10)
-        method_frame.grid(
-            row=0, column=0, columnspan=3, sticky="nsew", pady=(0, 12)
-        )
+        method_frame.grid(row=0, column=0, columnspan=3, sticky="nsew", pady=(0, 12))
         method_frame.columnconfigure(0, weight=1)
         method_frame.columnconfigure(1, weight=1)
+        method_frame.columnconfigure(2, weight=1)
         method_frame.rowconfigure(0, weight=1)
 
         ttk.Radiobutton(
             method_frame,
             text="Weight",
-            value="weight",
+            value=0,
             variable=self.test_method,
             command=self._update_method_fields,
         ).grid(row=0, column=0, padx=(0, 20))
         ttk.Radiobutton(
             method_frame,
             text="Volume",
-            value="volume",
+            value=1,
             variable=self.test_method,
             command=self._update_method_fields,
         ).grid(row=0, column=1)
+        ttk.Radiobutton(
+            method_frame,
+            text="Calibrate",
+            value=2,
+            variable=self.test_method,
+            command=self._update_method_fields,
+        ).grid(row=0, column=2, padx=(20, 0))
 
         inputs = ttk.LabelFrame(container, text="Test settings", padding=10)
         inputs.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=(0, 12))
@@ -120,13 +132,18 @@ class FlowSensorGUI:
         results = ttk.LabelFrame(container, text="Test results", padding=10)
         results.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(0, 12))
         results.columnconfigure(3, weight=1)
-        for row in range(3):
+        for row in range(6):
             results.rowconfigure(row, weight=1)
 
         self._add_display_row(results, 0, "Test time:", self.test_time, "ds")
-        self._add_display_row(results, 1, "Flow:", self.flow, "")
         self._add_display_row(
-            results, 2, "Error message:", self.error_message, "", width=32
+            results, 1, "Test progress time:", self.test_progress_time, "s"
+        )
+        self._add_display_row(results, 2, "Sample count:", self.sample_count, "")
+        self._add_display_row(results, 3, "Flow:", self.flow, "")
+        self._add_display_row(results, 4, "Actual weight:", self.actual_weight, "g")
+        self._add_display_row(
+            results, 5, "Error message:", self.error_message, "", width=32
         )
 
         ttk.Button(container, text="Start Test", command=self.run_test).grid(row=3, column=0, padx=(0, 8), sticky="nsew")
@@ -149,16 +166,17 @@ class FlowSensorGUI:
         ttk.Label(parent, text=unit).grid(row=row, column=2, sticky="w")
 
     def _update_method_fields(self) -> None:
-        weight_selected = self.test_method.get() == "weight"
+        weight_selected = self.test_method.get() == 0
+        volume_selected = self.test_method.get() == 1
         self.weight_entry.configure(state="normal" if weight_selected else "disabled")
         self.weight_timeout_entry.configure(state="normal" if weight_selected else "disabled")
-        self.volume_entry.configure(state="disabled" if weight_selected else "normal")
-        self.volume_timeout_entry.configure(state="disabled" if weight_selected else "normal")
+        self.volume_entry.configure(state="normal" if volume_selected else "disabled")
+        self.volume_timeout_entry.configure(state="normal" if volume_selected else "disabled")
         self.error_message.set("")
 
     def _get_active_settings(self) -> tuple[float, int] | None:
         """Validate and return the selected target and timeout."""
-        is_weight = self.test_method.get() == "weight"
+        is_weight = self.test_method.get() == 0
         target_text = self.weight_target.get() if is_weight else self.vessel_volume.get()
         timeout_text = (self.weight_timeout.get() if is_weight else self.volume_timeout.get())
         target_name = "Weight target" if is_weight else "Vessel volume"
@@ -205,11 +223,23 @@ class FlowSensorGUI:
 
     def run_test(self) -> None:
         """Start a test. Add flow-sensor client code here."""
-        settings = self._get_active_settings()
-        if settings is None:
-            return
-        target, _ = settings
-        mode = 0 if self.test_method.get() == "weight" else 1
+        mode = self.test_method.get()
+        if mode == 2:
+            target, timeout = 0.0, 0
+        else:
+            settings = self._get_active_settings()
+            if settings is None:
+                return
+            target, timeout = settings
+        self._test_generation += 1
+        test_generation = self._test_generation
+        self._test_active = False
+        self.test_time.set("--")
+        self.test_progress_time.set("0.0")
+        self.sample_count.set("--")
+        self.flow.set("--")
+        self.actual_weight.set("--")
+        self.error_message.set("")
         error_code = self.tc.write(
             rtu=1, address=0, index=0, size=1, payload=[mode]
         )
@@ -236,17 +266,122 @@ class FlowSensorGUI:
             self.error_message.set("Error while starting test on controller.")
             return
 
-        if mode == 1:
-            _, timeout = settings
-            deadline = time.monotonic() + timeout / 10
+        if mode == 2:
+            self.root.after(500, self._read_calibration_weight, test_generation)
+            return
+
+        self._test_active = True
+        started_at = time.monotonic()
+        self.root.after(
+            100, self._update_test_progress, test_generation, started_at, timeout
+        )
+
+        deadline = started_at + timeout / 10
+        if mode == 0:
             self.root.after(
-                1000, self._poll_volume_test, target, timeout, deadline
+                1000,
+                self._poll_weight_test,
+                target,
+                timeout,
+                deadline,
+                test_generation,
+            )
+        else:
+            self.root.after(
+                1000,
+                self._poll_volume_test,
+                target,
+                timeout,
+                deadline,
+                test_generation,
             )
 
-    def _poll_volume_test(
-        self, volume: float, timeout: int, deadline: float
+    def _read_calibration_weight(self, test_generation: int) -> None:
+        if test_generation != self._test_generation:
+            return
+
+        error_code, payload = self.tc.read(
+            rtu=1, address=5, index=0, size=1
+        )
+        if error_code != 0 or len(payload) < 1:
+            self.error_message.set("Error while reading calibration weight.")
+            return
+
+        self.actual_weight.set(f"{payload[0] / 100:.2f}")
+        self.error_message.set("")
+
+    def _update_test_progress(
+        self, test_generation: int, started_at: float, timeout: int
     ) -> None:
+        if test_generation != self._test_generation or not self._test_active:
+            return
+
+        elapsed_seconds = min(time.monotonic() - started_at, timeout / 10)
+        self.test_progress_time.set(f"{elapsed_seconds:.1f}")
+        if elapsed_seconds >= timeout / 10:
+            self._test_active = False
+            return
+        self.root.after(
+            100, self._update_test_progress, test_generation, started_at, timeout
+        )
+
+    def _poll_weight_test(
+        self,
+        weight: float,
+        timeout: int,
+        deadline: float,
+        test_generation: int,
+    ) -> None:
+        if test_generation != self._test_generation:
+            return
         if time.monotonic() >= deadline:
+            self._test_active = False
+            self.error_message.set("weight_timeout")
+            return
+
+        error_code, payload = self.tc.read(
+            rtu=1, address=4, index=0, size=3
+        )
+        if error_code != 0 or len(payload) < 3:
+            self._test_active = False
+            self.error_message.set("Error while reading weight test state.")
+            return
+
+        if payload[0] != 0:
+            self.root.after(
+                1000,
+                self._poll_weight_test,
+                weight,
+                timeout,
+                deadline,
+                test_generation,
+            )
+            return
+
+        self._test_active = False
+        time_to_fill = payload[1]
+        self.weight_count = payload[2]
+        if time_to_fill <= 0 or time_to_fill >= timeout:
+            self.flow.set("--")
+            self.error_message.set("weight test timeout")
+            return
+
+        self.test_time.set(str(time_to_fill))
+        self.sample_count.set(str(self.weight_count))
+        self.flow.set(f"{weight / time_to_fill * 36:.3f}")
+        self.error_message.set("")
+
+    def _poll_volume_test(
+        self,
+        volume: float,
+        timeout: int,
+        deadline: float,
+        test_generation: int,
+    ) -> None:
+        if test_generation != self._test_generation:
+            return
+        if time.monotonic() >= deadline:
+            self._test_active = False
             self.error_message.set("volume test timeout")
             return
 
@@ -254,15 +389,22 @@ class FlowSensorGUI:
             rtu=1, address=3, index=0, size=2
         )
         if error_code != 0 or len(payload) < 2:
+            self._test_active = False
             self.error_message.set("Error while reading volume test state.")
             return
 
         if payload[0] != 0:
             self.root.after(
-                1000, self._poll_volume_test, volume, timeout, deadline
+                1000,
+                self._poll_volume_test,
+                volume,
+                timeout,
+                deadline,
+                test_generation,
             )
             return
 
+        self._test_active = False
         time_to_fill = payload[1]
         self.test_time.set(str(time_to_fill))
         if time_to_fill <= 0 or time_to_fill >= timeout:

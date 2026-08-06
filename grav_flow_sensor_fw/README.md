@@ -1,5 +1,4 @@
 # grav_flow_sensor_fw
-firmware based on bc_power_monitor 
 measure flow by weight or volume 
 
 main: init, wait for and repond  to user commands 

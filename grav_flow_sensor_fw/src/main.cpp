@@ -22,7 +22,7 @@ static const char *TAG = "MAIN";
 static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
 static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 3000000;                              // 3 s print period for weight test task     
-static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900; // 90 s, must be < 100 s
+static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900;                                 // 90 s, must be < 100 s
 static constexpr int64_t CAL_NUM = 12049;                                               // calibration factors for 10 mg units, derived from calibration with known weight
 static constexpr int64_t CAL_DEN = 100;                                                 
 static constexpr gpio_num_t VOLUME_LOW_GPIO = GPIO_NUM_20;
@@ -40,6 +40,7 @@ enum class TestState : uint16_t {
 enum class TestType : uint16_t {
     weight = 0,
     volume = 1,
+    calibrate = 2,
 };
 
 struct WeightTestData {
@@ -64,6 +65,7 @@ static ADS1231 adc(GPIO_NUM_17, GPIO_NUM_16);
 static KeepCfg kc;
 static ProgramParameters work_params(0, 1800, 0, 0);
 static regs_action main_reg_act;
+static SemaphoreHandle_t ads1231_mutex;
 static SemaphoreHandle_t weight_test_mutex;
 static TaskHandle_t weight_test_task_handle;
 static SemaphoreHandle_t volume_test_mutex;
@@ -74,6 +76,19 @@ static WeightTestData weight_test_data = {
 static VolumeTestData volume_test_data = {
     TestState::stop, 0, VOLUME_TIMEOUT_LOW_DS, VOLUME_TIMEOUT_HIGH_DS
 };
+
+static bool read_ads1231(ADS1231::Sample &sample, TickType_t mutex_timeout) {
+    if (xSemaphoreTake(ads1231_mutex, mutex_timeout) != pdTRUE) {
+        return false;
+    }
+
+    while (!adc.poll(sample)) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    xSemaphoreGive(ads1231_mutex);
+    return true;
+}
 
 static void stop_volume_test(uint16_t time2fill_ds) {                               // stop volume test task and update time2fill_ds 
     if (xSemaphoreTake(volume_test_mutex, portMAX_DELAY) == pdTRUE) {
@@ -187,9 +202,9 @@ static void weight_test_task(void *arg){
         timeout_ds = weight_test_data.timeout_ds;                           // and timeout                             
         xSemaphoreGive(weight_test_mutex);
 
-        ADS1231::Sample adc_sample;                                         // read weight 
-        while (!adc.poll(adc_sample)) {
-            vTaskDelay(pdMS_TO_TICKS(10));
+        ADS1231::Sample adc_sample;                                         // read weight
+        if (!read_ads1231(adc_sample, portMAX_DELAY)) {
+            continue;
         }
 
         const int32_t tare_raw = adc_sample.raw;                            // update tare value (raw)
@@ -208,7 +223,12 @@ static void weight_test_task(void *arg){
                 std::min<int64_t>(elapsed_us / 100000, UINT16_MAX));        // cap casted number to 2^16-1
             bool target_reached = false;
 
-            if (adc.poll(adc_sample)) {
+            bool sample_ready = false;
+            if (xSemaphoreTake(ads1231_mutex, portMAX_DELAY) == pdTRUE) {
+                sample_ready = adc.poll(adc_sample);
+                xSemaphoreGive(ads1231_mutex);
+            }
+            if (sample_ready) {
                 const int32_t weight_10mg = static_cast<int32_t>(
                     (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_DEN / CAL_NUM);                    
 
@@ -284,7 +304,8 @@ void reg_action(regs_action &areg_act)
     switch (action_code) {
         case 60:                                                                    // set measurement mode (weight/volume)
             if (areg_act.mode[0] == static_cast<uint16_t>(TestType::weight) ||
-                areg_act.mode[0] == static_cast<uint16_t>(TestType::volume)) {
+                areg_act.mode[0] == static_cast<uint16_t>(TestType::volume) ||
+                areg_act.mode[0] == static_cast<uint16_t>(TestType::calibrate)) {
                 areg_act.ret_code = 0;
             } else {
                 areg_act.ret_code = 3;                                              // invalid mode
@@ -331,6 +352,18 @@ void reg_action(regs_action &areg_act)
                             xTaskNotifyGive(volume_test_task_handle);               // start volume test task
                         }
                         else areg_act.ret_code = 1;                                 //
+                    break;
+
+                    case TestType::calibrate: {
+                        ADS1231::Sample adc_sample;
+                        if (read_ads1231(adc_sample, pdMS_TO_TICKS(50))) {
+                            const int32_t weight_10mg = static_cast<int32_t>(
+                                static_cast<int64_t>(adc_sample.raw) * CAL_DEN / CAL_NUM);
+                            areg_act.samples[0] = static_cast<uint16_t>(weight_10mg);
+                        } else {
+                            areg_act.ret_code = 1;
+                        }
+                    }
                     break;
 
                     default:
@@ -388,6 +421,8 @@ extern "C" void app_main(void)
     ESP_LOGI(SER_MAIN, ",boot log_switch=%u", work_params.log_switch);
     ESP_LOGI(SER_MAIN, ",boot log_period=%u", work_params.log_period);
 
+    ads1231_mutex = xSemaphoreCreateMutex();
+    configASSERT(ads1231_mutex != nullptr);
     weight_test_mutex = xSemaphoreCreateMutex();
     configASSERT(weight_test_mutex != nullptr);
     volume_test_mutex = xSemaphoreCreateMutex();
