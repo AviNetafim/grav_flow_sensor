@@ -395,6 +395,7 @@ void reg_action(regs_action &areg_act)
         break;
 
         case 45:                                                                     //  copy sample buffer segment to samples buffer register
+        if (areg_act.mode[0] == TestType::weight) {                                  // only valid for weight test mode
             if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                 for (int i = 0  ; i < REG_SAMPLES ; i++){
                     areg_act.samples[i] = weight_test_data.samples[areg_act.pointer[0]+i];
@@ -402,6 +403,8 @@ void reg_action(regs_action &areg_act)
                 xSemaphoreGive(weight_test_mutex);
             }
             else areg_act.ret_code = 1;
+
+        }
         break;
         case 68:                                                                     //  actuate selected valve 
         // set gpio  to 0/1 per areg_act.actuator[0,1]
