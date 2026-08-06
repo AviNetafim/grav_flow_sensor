@@ -395,7 +395,7 @@ void reg_action(regs_action &areg_act)
         break;
 
         case 45:                                                                     //  copy sample buffer segment to samples buffer register
-        if (areg_act.mode[0] == TestType::weight) {                                  // only valid for weight test mode
+        if (areg_act.mode[0] == static_cast<uint16_t>(TestType::weight)) {                                  // only valid for weight test mode
             if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                 for (int i = 0  ; i < REG_SAMPLES ; i++){
                     areg_act.samples[i] = weight_test_data.samples[areg_act.pointer[0]+i];
