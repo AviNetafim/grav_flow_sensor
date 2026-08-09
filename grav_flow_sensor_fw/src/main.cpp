@@ -23,8 +23,9 @@ static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
 static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 3000000;                              // 3 s print period for weight test task     
 static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900;                                 // 90 s, must be < 100 s
-static constexpr int64_t CAL_NUM = 12049;                                               // calibration factors for 10 mg units, derived from calibration with known weight
-static constexpr int64_t CAL_DEN = 100;                                                 
+static constexpr int64_t CAL_DIV = 14226;                                               // calibration factors for 10 mg units, derived from calibration with known weight
+static constexpr int64_t CAL_MUL = 100;                                                 
+static constexpr int64_t CAL_OFFSET = 381;                                                 
 static constexpr gpio_num_t VOLUME_LOW_GPIO = GPIO_NUM_20;
 static constexpr gpio_num_t VOLUME_HIGH_GPIO = GPIO_NUM_19;
 static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 200;                                  // 10s to start filling, must be < 100s 
@@ -209,7 +210,7 @@ static void weight_test_task(void *arg){
 
         const int32_t tare_raw = adc_sample.raw;                            // update tare value (raw)
         const int64_t target_delta_raw =                                    // and target increment in raw 
-            static_cast<int64_t>(target_weight_10mg) * CAL_NUM / CAL_DEN;
+            static_cast<int64_t>(target_weight_10mg) * CAL_DIV / CAL_MUL;
         const int64_t started_us = esp_timer_get_time();                    // start_us (since timer was initialized)
         int64_t last_weight_print_us = started_us;
         TickType_t next_wake = xTaskGetTickCount();                         // rtos ticks since task was scheduled
@@ -230,7 +231,7 @@ static void weight_test_task(void *arg){
             }
             if (sample_ready) {
                 const int32_t weight_10mg = static_cast<int32_t>(
-                    (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_DEN / CAL_NUM);                    
+                    (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_MUL / CAL_DIV + CAL_OFFSET);  // convert raw to weight in 10 mg units, add offset        
 
                 // const int64_t now_us = esp_timer_get_time();
                 // if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
@@ -359,7 +360,7 @@ void reg_action(regs_action &areg_act)
                         if (read_ads1231(adc_sample, pdMS_TO_TICKS(50))) {
                             printf("Calibration raw reading: %ld\n", adc_sample.raw);
                             const int32_t weight_10mg = static_cast<int32_t>(
-                                static_cast<int64_t>(adc_sample.raw) * CAL_DEN / CAL_NUM);
+                                static_cast<int64_t>(adc_sample.raw) * CAL_MUL / CAL_DIV + CAL_OFFSET);
                             areg_act.samples[0] = static_cast<uint16_t>(weight_10mg);
                             printf("Calibration reading: %.2f g\n", static_cast<double>(weight_10mg) / 100.0);
                         } else {
