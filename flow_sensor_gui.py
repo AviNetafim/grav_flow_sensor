@@ -41,6 +41,8 @@ class FlowSensorGUI:
         self.sample_count = tk.StringVar(value="--")
         self.flow = tk.StringVar(value="--")
         self.actual_weight = tk.StringVar(value="--")
+        self.tare_weight = 0  # 10 mg units, matching the samples register
+        self.actual_weight_10mg: int | None = None
         self.error_message = tk.StringVar()
         self.weight_count = 0
         self._test_generation = 0
@@ -67,13 +69,14 @@ class FlowSensorGUI:
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
         container.columnconfigure(2, weight=1)
+        container.columnconfigure(3, weight=1)
         container.rowconfigure(0, weight=1)
         container.rowconfigure(1, weight=4)
         container.rowconfigure(2, weight=3)
         container.rowconfigure(3, weight=1)
 
         method_frame = ttk.LabelFrame(container, text="Test method", padding=10)
-        method_frame.grid(row=0, column=0, columnspan=3, sticky="nsew", pady=(0, 12))
+        method_frame.grid(row=0, column=0, columnspan=4, sticky="nsew", pady=(0, 12))
         method_frame.columnconfigure(0, weight=1)
         method_frame.columnconfigure(1, weight=1)
         method_frame.columnconfigure(2, weight=1)
@@ -102,7 +105,7 @@ class FlowSensorGUI:
         ).grid(row=0, column=2, padx=(20, 0))
 
         inputs = ttk.LabelFrame(container, text="Test settings", padding=10)
-        inputs.grid(row=1, column=0, columnspan=3, sticky="nsew", pady=(0, 12))
+        inputs.grid(row=1, column=0, columnspan=4, sticky="nsew", pady=(0, 12))
         inputs.columnconfigure(3, weight=1)
         for row in range(4):
             inputs.rowconfigure(row, weight=1)
@@ -130,7 +133,7 @@ class FlowSensorGUI:
         ttk.Label(inputs, text="ds (1–999)").grid(row=3, column=2, sticky="w")
 
         results = ttk.LabelFrame(container, text="Test results", padding=10)
-        results.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(0, 12))
+        results.grid(row=2, column=0, columnspan=4, sticky="nsew", pady=(0, 12))
         results.columnconfigure(3, weight=1)
         for row in range(6):
             results.rowconfigure(row, weight=1)
@@ -148,7 +151,9 @@ class FlowSensorGUI:
 
         ttk.Button(container, text="Start Test", command=self.run_test).grid(row=3, column=0, padx=(0, 8), sticky="nsew")
         ttk.Button(container, text="Get Samples", command=self.get_samples).grid(row=3, column=1, sticky="nsew")
-        ttk.Button(container, text="Exit", command=self.root.destroy).grid(row=3, column=2, padx=(8, 0), sticky="nsew")
+        self.tare_button = ttk.Button(container, text="Tare", command=self.tare)
+        self.tare_button.grid(row=3, column=2, padx=(8, 0), sticky="nsew")
+        ttk.Button(container, text="Exit", command=self.root.destroy).grid(row=3, column=3, padx=(8, 0), sticky="nsew")
 
     @staticmethod
     def _add_display_row(
@@ -172,6 +177,16 @@ class FlowSensorGUI:
         self.weight_timeout_entry.configure(state="normal" if weight_selected else "disabled")
         self.volume_entry.configure(state="normal" if volume_selected else "disabled")
         self.volume_timeout_entry.configure(state="normal" if volume_selected else "disabled")
+        self.tare_button.configure(state="normal" if self.test_method.get() == 2 else "disabled")
+        self.error_message.set("")
+
+    def tare(self) -> None:
+        """Use the latest calibration sample as the zero-weight offset."""
+        if self.test_method.get() != 2 or self.actual_weight_10mg is None:
+            return
+
+        self.tare_weight = self.actual_weight_10mg
+        self.actual_weight.set("0.00")
         self.error_message.set("")
 
     def _get_active_settings(self) -> tuple[float, int] | None:
@@ -223,7 +238,7 @@ class FlowSensorGUI:
 
     def run_test(self) -> None:
         """Start a test. Add flow-sensor client code here."""
-        mode = self.test_method.get()
+        mode = self.test_method.get()                                       # get test mode (0=weight, 1=volume, 2=calibrate)
         if mode == 2:
             target, timeout = 0.0, 0
         else:
@@ -239,8 +254,9 @@ class FlowSensorGUI:
         self.sample_count.set("--")
         self.flow.set("--")
         self.actual_weight.set("--")
+        self.actual_weight_10mg = None
         self.error_message.set("")
-        error_code = self.tc.write(
+        error_code = self.tc.write(                                                 # set test mode on controller        
             rtu=1, address=0, index=0, size=1, payload=[mode]
         )
         if error_code != 0:
@@ -250,7 +266,7 @@ class FlowSensorGUI:
         if mode == 0:                                                               # weight mode
             target_10mg = round(target * 100)
             print(f"Setting weight target to {target_10mg} (10 mg units)")
-            error_code = self.tc.write(
+            error_code = self.tc.write(                                             # write weight target to controller
                 rtu=1, address=1, index=0, size=1, payload=[target_10mg]
             )
             if error_code != 0:
@@ -259,14 +275,14 @@ class FlowSensorGUI:
                 )
                 return
 
-        error_code = self.tc.write(
+        error_code = self.tc.write(                                                 # start test on controller      
             rtu=1, address=2, index=0, size=1, payload=[1]
         )
         if error_code != 0:
             self.error_message.set("Error while starting test on controller.")
             return
 
-        if mode == 2:
+        if mode == 2:                                                             # calibrate mode, read calibration weight after 500 ms      
             self.root.after(500, self._read_calibration_weight, test_generation)
             return
 
@@ -307,7 +323,9 @@ class FlowSensorGUI:
             self.error_message.set("Error while reading calibration weight.")
             return
 
-        self.actual_weight.set(f"{payload[0] / 100:.2f}")
+        self.actual_weight_10mg = payload[0]
+        net_weight_10mg = self.actual_weight_10mg - self.tare_weight
+        self.actual_weight.set(f"{net_weight_10mg / 100:.2f}")
         self.error_message.set("")
 
     def _update_test_progress(
@@ -347,7 +365,7 @@ class FlowSensorGUI:
             self.error_message.set("Error while reading weight test state.")
             return
 
-        if payload[0] != 0:
+        if payload[0] != 0:                                                         # keep polling until test is complete (=0)
             self.root.after(
                 1000,
                 self._poll_weight_test,

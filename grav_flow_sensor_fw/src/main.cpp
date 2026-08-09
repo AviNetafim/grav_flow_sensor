@@ -232,38 +232,38 @@ static void weight_test_task(void *arg){
                 const int32_t weight_10mg = static_cast<int32_t>(
                     (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_DEN / CAL_NUM);                    
 
-                const int64_t now_us = esp_timer_get_time();
-                if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
-                    ESP_LOGI(TAG, "Measured weight: %.2f g",
-                             static_cast<double>(weight_10mg) / 100.0);
-                    last_weight_print_us = now_us;
-                }
+                // const int64_t now_us = esp_timer_get_time();
+                // if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
+                //     ESP_LOGI(TAG, "Measured weight: %.2f g",
+                //              static_cast<double>(weight_10mg) / 100.0);
+                //     last_weight_print_us = now_us;
+                // }
 
                 if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
                     if (weight_test_data.sample_count <                                
                         WEIGHT_TEST_MAX_SAMPLES) {
                         weight_test_data.samples[
-                            weight_test_data.sample_count++] = weight_10mg;  // store reading in samples
+                            weight_test_data.sample_count++] = weight_10mg;         // store reading in samples
                     }
-                    weight_test_data.time2target_ds = elapsed_ds;            //  update time to target
+                    weight_test_data.time2target_ds = elapsed_ds;                   //  update time to target
                     xSemaphoreGive(weight_test_mutex);
                 }
 
                 target_reached =
                     static_cast<int64_t>(adc_sample.raw) - tare_raw >=
-                    target_delta_raw;                                        // update target reached condition
+                    target_delta_raw;                                               // update target reached condition
             }
 
-            const bool timed_out = elapsed_ds >= timeout_ds;                // update timeout condition
+            const bool timed_out = elapsed_ds >= timeout_ds;                        // update timeout condition
             if (target_reached || timed_out) {
                 if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
                     weight_test_data.test_state = TestState::stop;       
-                    weight_test_data.time2target_ds = elapsed_ds;           // continuously done above?
+                weight_test_data.time2target_ds = elapsed_ds;                       // continuously done above?
                     xSemaphoreGive(weight_test_mutex);
                 }
                 ESP_LOGI(TAG, "Weight test stop: %s after %u ds",
                          target_reached ? "target reached" : "timeout",
-                         elapsed_ds);                                       //     
+                         elapsed_ds);                                            
                 break;
             }
 
@@ -357,6 +357,7 @@ void reg_action(regs_action &areg_act)
                     case TestType::calibrate: {
                         ADS1231::Sample adc_sample;
                         if (read_ads1231(adc_sample, pdMS_TO_TICKS(50))) {
+                            printf("Calibration raw reading: %ld\n", adc_sample.raw);
                             const int32_t weight_10mg = static_cast<int32_t>(
                                 static_cast<int64_t>(adc_sample.raw) * CAL_DEN / CAL_NUM);
                             areg_act.samples[0] = static_cast<uint16_t>(weight_10mg);
