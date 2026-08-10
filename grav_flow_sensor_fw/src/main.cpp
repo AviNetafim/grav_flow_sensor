@@ -214,7 +214,7 @@ static void weight_test_task(void *arg){
         ESP_LOGI(TAG, "target 0 = %" PRId64 "" , target_raw_0);
         const int64_t target_delta_raw_abs =                                    // target raw = target_10mg 
             static_cast<int64_t>(target_weight_10mg - CAL_OFFSET) * CAL_DIV / CAL_MUL;  // targert weigth converted to raw  units
-        const int64_t target_delta_raw = target_delta_raw_abs - target_tare_0;
+        const int64_t target_delta_raw = target_delta_raw_abs - target_raw_0;
         ESP_LOGI(TAG, "target delta = %" PRId64 "" , target_delta_raw);
             const int64_t started_us = esp_timer_get_time();                // start_us (since timer was initialized)
         int64_t last_weight_print_us = started_us;                          // TEMP DEBUG
