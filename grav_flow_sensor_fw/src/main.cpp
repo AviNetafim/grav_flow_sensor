@@ -208,7 +208,7 @@ static void weight_test_task(void *arg){
             continue;
         }
 
-        const int32_t tare_raw = adc_sample.raw;                            // update tare value (raw)
+        const int64_t tare_raw = static_cast<int64_t>(adc_sample.raw);                            // update tare value (raw)
         ESP_LOGI(TAG, "Tare raw = %" PRId64 "" , tare_raw);
         const int64_t target_raw_0 = static_cast<int64_t>(-CAL_OFFSET * CAL_DIV / CAL_MUL);
         ESP_LOGI(TAG, "target 0 = %" PRId64 "" , target_raw_0);
