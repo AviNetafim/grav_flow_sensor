@@ -41,7 +41,7 @@ class FlowSensorGUI:
         self.sample_count = tk.StringVar(value="--")
         self.flow = tk.StringVar(value="--")
         self.actual_weight = tk.StringVar(value="--")
-        self.tare_weight = 0  # 10 mg units, matching the samples register
+        self.tare_weight = 0                                                # 10 mg units, matching the samples register
         self.actual_weight_10mg: int | None = None
         self.error_message = tk.StringVar()
         self.weight_count = 0
