@@ -19,8 +19,8 @@ class FlowSensorGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Gravimetric Flow Sensor Test Bench")
-        self.root.geometry("800x700")
-        self.root.minsize(600, 500)
+        self.root.geometry("760x640")
+        self.root.minsize(640, 540)
         self.root.resizable(True, True)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
@@ -52,19 +52,19 @@ class FlowSensorGUI:
         self._update_method_fields()
 
     def _configure_styles(self) -> None:
-        """Increase widget text and padding for a larger, clearer interface."""
+        """Use compact fonts and padding suitable for a laptop display."""
         for font_name in ("TkDefaultFont", "TkTextFont"):
             font = tkfont.nametofont(font_name)
-            font.configure(size=max(12, round(font.cget("size") * 1.3)))
+            font.configure(size=10)
 
         style = ttk.Style(self.root)
-        style.configure("TButton", padding=(12, 9))
-        style.configure("TRadiobutton", padding=(6, 5))
-        style.configure("TEntry", padding=(6, 5))
-        style.configure("TLabelframe", padding=6)
+        style.configure("TButton", padding=(8, 5))
+        style.configure("TRadiobutton", padding=(4, 3))
+        style.configure("TEntry", padding=(4, 3))
+        style.configure("TLabelframe", padding=4)
 
     def _build_ui(self) -> None:
-        container = ttk.Frame(self.root, padding=16)
+        container = ttk.Frame(self.root, padding=10)
         container.grid(row=0, column=0, sticky="nsew")
         container.columnconfigure(0, weight=1)
         container.columnconfigure(1, weight=1)
@@ -75,8 +75,8 @@ class FlowSensorGUI:
         container.rowconfigure(2, weight=3)
         container.rowconfigure(3, weight=1)
 
-        method_frame = ttk.LabelFrame(container, text="Test method", padding=10)
-        method_frame.grid(row=0, column=0, columnspan=4, sticky="nsew", pady=(0, 12))
+        method_frame = ttk.LabelFrame(container, text="Test method", padding=6)
+        method_frame.grid(row=0, column=0, columnspan=4, sticky="nsew", pady=(0, 8))
         method_frame.columnconfigure(0, weight=1)
         method_frame.columnconfigure(1, weight=1)
         method_frame.columnconfigure(2, weight=1)
@@ -104,8 +104,8 @@ class FlowSensorGUI:
             command=self._update_method_fields,
         ).grid(row=0, column=2, padx=(20, 0))
 
-        inputs = ttk.LabelFrame(container, text="Test settings", padding=10)
-        inputs.grid(row=1, column=0, columnspan=4, sticky="nsew", pady=(0, 12))
+        inputs = ttk.LabelFrame(container, text="Test settings", padding=6)
+        inputs.grid(row=1, column=0, columnspan=4, sticky="nsew", pady=(0, 8))
         inputs.columnconfigure(3, weight=1)
         for row in range(4):
             inputs.rowconfigure(row, weight=1)
@@ -132,8 +132,8 @@ class FlowSensorGUI:
         self.volume_timeout_entry.grid(row=3, column=1, padx=8, pady=4, sticky="w")
         ttk.Label(inputs, text="ds (1–999)").grid(row=3, column=2, sticky="w")
 
-        results = ttk.LabelFrame(container, text="Test results", padding=10)
-        results.grid(row=2, column=0, columnspan=4, sticky="nsew", pady=(0, 12))
+        results = ttk.LabelFrame(container, text="Test results", padding=6)
+        results.grid(row=2, column=0, columnspan=4, sticky="nsew", pady=(0, 8))
         results.columnconfigure(3, weight=1)
         for row in range(6):
             results.rowconfigure(row, weight=1)

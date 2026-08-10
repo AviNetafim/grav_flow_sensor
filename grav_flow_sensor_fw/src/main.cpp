@@ -210,7 +210,7 @@ static void weight_test_task(void *arg){
 
         const int32_t tare_raw = adc_sample.raw;                            // update tare value (raw)
         const int64_t target_delta_raw =                                    // and target increment in raw 
-            static_cast<int64_t>(target_weight_10mg) * CAL_DIV / CAL_MUL;
+            static_cast<int64_t>(target_weight_10mg- CAL_OFFSET) * CAL_DIV / CAL_MUL;
         const int64_t started_us = esp_timer_get_time();                    // start_us (since timer was initialized)
         // int64_t last_weight_print_us = started_us;
         TickType_t next_wake = xTaskGetTickCount();                         // rtos ticks since task was scheduled
