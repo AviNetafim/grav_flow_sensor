@@ -231,7 +231,7 @@ static void weight_test_task(void *arg){
             }
             if (sample_ready) {
                 const int32_t weight_10mg = static_cast<int32_t>(
-                    (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_MUL / CAL_DIV + CAL_OFFSET);  // convert raw to weight in 10 mg units, add offset        
+                    (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_MUL / CAL_DIV);  // convert raw to weight in 10 mg units, add offset        
 
                 // TEMP DEBUG: report the current sensor reading once per second.
                 const int64_t now_us = esp_timer_get_time();
