@@ -25,6 +25,7 @@
 
 #define TCP_PORT 502
 #define MAX_BUF   128
+#define SHOW False
 
 static constexpr uint8_t REG_MAP_SIZE = 9;                                         // number of registers                 
 static constexpr uint8_t REG_SAMPLES = 32;                                             // weight samples size 

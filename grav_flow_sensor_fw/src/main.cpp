@@ -212,7 +212,7 @@ static void weight_test_task(void *arg){
         const int64_t target_delta_raw =                                    // and target increment in raw 
             static_cast<int64_t>(target_weight_10mg) * CAL_DIV / CAL_MUL;
         const int64_t started_us = esp_timer_get_time();                    // start_us (since timer was initialized)
-        int64_t last_weight_print_us = started_us;
+        // int64_t last_weight_print_us = started_us;
         TickType_t next_wake = xTaskGetTickCount();                         // rtos ticks since task was scheduled
 
         ESP_LOGI(TAG, "Weight test started: target=%u x 10 mg, timeout=%u ds",
@@ -472,9 +472,9 @@ extern "C" void app_main(void)
 
     while (true) {
         xQueueReceive(q_protocol_to_main, &main_reg_act, portMAX_DELAY);
-        show_reg_act(main_reg_act);
+        if SHOW show_reg_act(main_reg_act);
         reg_action(main_reg_act);
-        show_reg_act(main_reg_act);
+        if SHOW show_reg_act(main_reg_act);
         xQueueSend(q_main_to_protocol, &main_reg_act, portMAX_DELAY);
     }
 }
