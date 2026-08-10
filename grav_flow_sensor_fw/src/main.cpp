@@ -209,7 +209,7 @@ static void weight_test_task(void *arg){
         }
 
         const int32_t tare_raw = adc_sample.raw;                            // update tare value (raw)
-        ESP_LOGI(TAG, "Tare raw = %d" , tare_raw.raw);
+        ESP_LOGI(TAG, "Tare raw = %d" , tare_raw);
         const int64_t target_raw_0 = static_cast<int64_t>(-CAL_OFFSET * CAL_DIV / CAL_MUL);
         ESP_LOGI(TAG, "target 0 = %d" , target_raw_0);
         const int64_t target_delta_raw =                                    // target raw = target_10mg 
