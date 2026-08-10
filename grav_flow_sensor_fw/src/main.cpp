@@ -472,9 +472,9 @@ extern "C" void app_main(void)
 
     while (true) {
         xQueueReceive(q_protocol_to_main, &main_reg_act, portMAX_DELAY);
-        if COM_PRT show_reg_act(main_reg_act);
+        if (COM_PRT) show_reg_act(main_reg_act);
         reg_action(main_reg_act);
-        if COM_PRT show_reg_act(main_reg_act);
+        if (COM_PRT) show_reg_act(main_reg_act);
         xQueueSend(q_main_to_protocol, &main_reg_act, portMAX_DELAY);
     }
 }
