@@ -209,17 +209,17 @@ static void weight_test_task(void *arg){
         }
 
         const int32_t tare_raw = adc_sample.raw;                            // update tare value (raw)
-        ESP_LOGI(TAG, "Tare raw = %u" , tare_raw);
-        const int64_t target_raw_0 = static_cast<int64_t>(CAL_OFFSET * CAL_DIV / CAL_MUL);
-        ESP_LOGI(TAG, "target 0 = %u" , target_raw_0);
+        ESP_LOGI(TAG, "Tare raw = %d" , tare_raw.raw);
+        const int64_t target_raw_0 = static_cast<int64_t>(-CAL_OFFSET * CAL_DIV / CAL_MUL);
+        ESP_LOGI(TAG, "target 0 = %d" , target_raw_0);
         const int64_t target_delta_raw =                                    // target raw = target_10mg 
             static_cast<int64_t>(target_weight_10mg - CAL_OFFSET) * CAL_DIV / CAL_MUL;  // targert weigth converted to raw  units
-        ESP_LOGI(TAG, "target delta = %u" , target_delta_raw);
+        ESP_LOGI(TAG, "target delta = %d" , target_delta_raw);
             const int64_t started_us = esp_timer_get_time();                    // start_us (since timer was initialized)
         int64_t last_weight_print_us = started_us;                            // TEMP DEBUG
         TickType_t next_wake = xTaskGetTickCount();                         // rtos ticks since task was scheduled
 
-        ESP_LOGI(TAG, "Weight test started: target=%u x 10 mg, timeout=%u ds",
+        ESP_LOGI(TAG, "Weight test started: target=%d x 10 mg, timeout=%u ds",
                  target_weight_10mg, timeout_ds);
 
         while (true) {
