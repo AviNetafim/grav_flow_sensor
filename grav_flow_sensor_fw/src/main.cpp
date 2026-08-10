@@ -21,7 +21,7 @@ static const char *TAG = "MAIN";
 
 static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
-static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 3000000;                              // 3 s print period for weight test task     
+static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 1000000;                              // TEMP DEBUG: print weight every 1 s
 static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900;                                 // 90 s, must be < 100 s
 static constexpr int64_t CAL_DIV = 14226;                                               // calibration factors for 10 mg units, derived from calibration with known weight
 static constexpr int64_t CAL_MUL = 100;                                                 
@@ -212,7 +212,7 @@ static void weight_test_task(void *arg){
         const int64_t target_delta_raw =                                    // and target increment in raw 
             static_cast<int64_t>(target_weight_10mg- CAL_OFFSET) * CAL_DIV / CAL_MUL;
         const int64_t started_us = esp_timer_get_time();                    // start_us (since timer was initialized)
-        // int64_t last_weight_print_us = started_us;
+        int64_t last_weight_print_us = started_us;                            // TEMP DEBUG
         TickType_t next_wake = xTaskGetTickCount();                         // rtos ticks since task was scheduled
 
         ESP_LOGI(TAG, "Weight test started: target=%u x 10 mg, timeout=%u ds",
@@ -233,12 +233,18 @@ static void weight_test_task(void *arg){
                 const int32_t weight_10mg = static_cast<int32_t>(
                     (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_MUL / CAL_DIV + CAL_OFFSET);  // convert raw to weight in 10 mg units, add offset        
 
-                // const int64_t now_us = esp_timer_get_time();
-                // if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
-                //     ESP_LOGI(TAG, "Measured weight: %.2f g",
-                //              static_cast<double>(weight_10mg) / 100.0);
-                //     last_weight_print_us = now_us;
-                // }
+                // TEMP DEBUG: report the current sensor reading once per second.
+                const int64_t now_us = esp_timer_get_time();
+                if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
+                    ESP_LOGI(TAG,
+                             "Weight sensor: raw=%ld, weight=%.2f g, "
+                             "tare raw=%ld, target=%.2f g",
+                             static_cast<long>(adc_sample.raw),
+                             static_cast<double>(weight_10mg) / 100.0,
+                             static_cast<long>(tare_raw),
+                             static_cast<double>(target_weight_10mg) / 100.0);
+                    last_weight_print_us = now_us;
+                }
 
                 if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
                     if (weight_test_data.sample_count <                                

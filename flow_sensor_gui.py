@@ -186,6 +186,7 @@ class FlowSensorGUI:
             return
 
         self.tare_weight = self.actual_weight_10mg
+        print(f"Tare weight set to {self.tare_weight} (10 mg units)"    )
         self.actual_weight.set("0.00")
         self.error_message.set("")
 
@@ -324,7 +325,9 @@ class FlowSensorGUI:
             return
 
         self.actual_weight_10mg = payload[0]
+        print(f"Calibration weight read: {self.actual_weight_10mg} (10 mg units)")
         net_weight_10mg = self.actual_weight_10mg - self.tare_weight
+        print(f"Net weight: {net_weight_10mg} (10 mg units)")
         self.actual_weight.set(f"{net_weight_10mg / 100:.2f}")
         self.error_message.set("")
 
