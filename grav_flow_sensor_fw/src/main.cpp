@@ -238,11 +238,12 @@ static void weight_test_task(void *arg){
                 if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
                     ESP_LOGI(TAG,
                              "Weight sensor: raw=%ld, weight=%.2f g, "
-                             "tare raw=%ld, target=%.2f g",
+                             "tare raw=%ld, target=%.2f g, target raw=%ld",
                              static_cast<long>(adc_sample.raw),
                              static_cast<double>(weight_10mg) / 100.0,
                              static_cast<long>(tare_raw),
-                             static_cast<double>(target_weight_10mg) / 100.0);
+                             static_cast<double>(target_weight_10mg) / 100.0,
+                             static_cast<long>(target_delta_raw));
                     last_weight_print_us = now_us;
                 }
 
