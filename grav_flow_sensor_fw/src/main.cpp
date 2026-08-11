@@ -23,9 +23,15 @@ static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
 static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 1000000;                              // TEMP DEBUG: print weight every 1 s
 static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900;                                 // 90 s, must be < 100 s
-static constexpr int64_t CAL_DIV = 14226;                                               // calibration factors for 10 mg units, derived from calibration with known weight
+
+// static constexpr int64_t CAL_DIV = 14226;                                            // calibration factors for 10 mg units, derived from calibration with known weight
+// static constexpr int64_t CAL_OFFSET = 381;                                           // for development loadcell
+
+static constexpr int64_t CAL_DIV = 12060;                                               // calibration factors for 10 mg units, derived from calibration with known weight
+static constexpr int64_t CAL_OFFSET = -4265;                                            // for development loadcell
+
 static constexpr int64_t CAL_MUL = 100;                                                 
-static constexpr int64_t CAL_OFFSET = 381;                                                 
+
 static constexpr gpio_num_t VOLUME_LOW_GPIO = GPIO_NUM_20;
 static constexpr gpio_num_t VOLUME_HIGH_GPIO = GPIO_NUM_19;
 static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 200;                                  // 10s to start filling, must be < 100s 
