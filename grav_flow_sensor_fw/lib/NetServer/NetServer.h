@@ -24,12 +24,8 @@
 #include "freertos/queue.h"
 
 #define TCP_PORT 502
-<<<<<<< HEAD
-#define MAX_BUF   128
-=======
 #define MAX_BUF  128
->>>>>>> e9bf2e49bd23221a34d2e72b7ac2f463fcece68c
-#define COM_PRT false
+#define COM_PRT true
 
 static constexpr uint8_t REG_MAP_SIZE = 9;                                         // number of registers                 
 static constexpr uint8_t REG_SAMPLES = 32;                                             // weight samples size 

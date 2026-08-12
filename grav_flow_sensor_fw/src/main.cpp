@@ -319,7 +319,7 @@ void reg_action(regs_action &areg_act)
 {
     const int action_code = 10 * areg_act.func + areg_act.address;
     areg_act.ret_code = 0;
-
+    printf("reg_action: action_code=%d\n", action_code);
     switch (action_code) {
         case 60:                                                                    // set measurement mode (weight/volume)
             if (areg_act.mode[0] == static_cast<uint16_t>(TestType::weight) ||
@@ -334,6 +334,7 @@ void reg_action(regs_action &areg_act)
             areg_act.ret_code = 0;
         break;
         case 62:                                                                    // start test (weight/volume)
+            printf("reg_action: test command received, mode=%u, test=%u\n", areg_act.mode[0], areg_act.test[0]);
             if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){  
                 areg_act.ret_code = 0;       
                 switch (static_cast<TestType>(areg_act.mode[0])){
@@ -374,6 +375,7 @@ void reg_action(regs_action &areg_act)
                     break;
 
                     case TestType::calibrate: {
+                        printf("reg_action: calibration command received\n");
                         ADS1231::Sample adc_sample;
                         if (read_ads1231(adc_sample, pdMS_TO_TICKS(50))) {
                             printf("Calibration raw reading: %ld\n", adc_sample.raw);
@@ -382,6 +384,7 @@ void reg_action(regs_action &areg_act)
                             areg_act.samples[0] = static_cast<uint16_t>(weight_10mg);
                             printf("Calibration reading: %.2f g\n", static_cast<double>(weight_10mg) / 100.0);
                         } else {
+                            printf("Calibration failed: could not read from ADS1231\n");
                             areg_act.ret_code = 1;
                         }
                     }
