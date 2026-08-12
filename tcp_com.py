@@ -22,7 +22,7 @@ class TcpCom:
         except Exception as e:  
             print(f"Unexpected error: {e}")
         self.rec_str =[]
-        self.print_com = False
+        self.print_com = True
 
     def write(self,rtu=1, address=0,index=0,size=1, payload=[]):
         cmd_str = bytearray([rtu, 0x06, address])

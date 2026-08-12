@@ -2,13 +2,33 @@
 
 #include "esp_rom_sys.h"
 
-ADS1231::ADS1231(gpio_num_t sclk_gpio, gpio_num_t dout_gpio)
-    : _sclk(sclk_gpio), _dout(dout_gpio)
+ADS1231::ADS1231(gpio_num_t sclk_gpio, gpio_num_t dout_gpio,
+                 gpio_num_t pwdn_gpio)
+    : _sclk(sclk_gpio), _dout(dout_gpio), _pwdn(pwdn_gpio),
+      _initialized(false), _powered_down(true)
 {
 }
 
 esp_err_t ADS1231::begin()
 {
+    gpio_config_t pwdn_conf = {};
+    pwdn_conf.pin_bit_mask = 1ULL << _pwdn;
+    pwdn_conf.mode = GPIO_MODE_OUTPUT;
+    pwdn_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+    pwdn_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    pwdn_conf.intr_type = GPIO_INTR_DISABLE;
+
+    esp_err_t err = gpio_config(&pwdn_conf);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    // PWDN is active LOW. Enable the ADS1231 during initialization.
+    err = gpio_set_level(_pwdn, 1);
+    if (err != ESP_OK) {
+        return err;
+    }
+
     gpio_config_t sclk_conf = {};
     sclk_conf.pin_bit_mask = 1ULL << _sclk;
     sclk_conf.mode = GPIO_MODE_OUTPUT;
@@ -16,7 +36,7 @@ esp_err_t ADS1231::begin()
     sclk_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
     sclk_conf.intr_type = GPIO_INTR_DISABLE;
 
-    esp_err_t err = gpio_config(&sclk_conf);
+    err = gpio_config(&sclk_conf);
     if (err != ESP_OK) {
         return err;
     }
@@ -34,15 +54,58 @@ esp_err_t ADS1231::begin()
     }
 
     // ADS1231 serial clock should idle LOW.
-    gpio_set_level(_sclk, 0);
+    err = gpio_set_level(_sclk, 0);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    _powered_down = false;
+    _initialized = true;
 
     return ESP_OK;
 }
 
-bool ADS1231::isReady() const
+esp_err_t ADS1231::powerDown()
 {
+    if (!_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t err = gpio_set_level(_pwdn, 0);
+    if (err == ESP_OK) {
+        _powered_down = true;
+    }
+    return err;
+}
+
+esp_err_t ADS1231::powerUp()
+{
+    if (!_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t err = gpio_set_level(_pwdn, 1);
+    if (err == ESP_OK) {
+        _powered_down = false;
+    }
+    return err;
+}
+
+bool ADS1231::isPoweredDown() const
+{
+    return !_initialized || _powered_down;
+}
+
+esp_err_t ADS1231::isReady(bool &ready) const
+{
+    ready = false;
+    if (isPoweredDown()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     // DRDY/DOUT goes LOW when a new conversion result is ready.
-    return gpio_get_level(_dout) == 0;
+    ready = gpio_get_level(_dout) == 0;
+    return ESP_OK;
 }
 
 void ADS1231::delayShort() const
@@ -65,8 +128,13 @@ esp_err_t ADS1231::readRaw(int32_t &value)
 {
     // convert adc serial data to int32_t value
     
-    if (!isReady()) {
-        return ESP_ERR_INVALID_STATE;
+    bool ready = false;
+    esp_err_t err = isReady(ready);
+    if (err != ESP_OK) {
+        return err;
+    }
+    if (!ready) {
+        return ESP_ERR_NOT_FINISHED;
     }
 
     uint32_t raw = 0;
@@ -98,16 +166,16 @@ esp_err_t ADS1231::readRaw(int32_t &value)
     return ESP_OK;
 }
 
-bool ADS1231::poll(Sample &sample)
+esp_err_t ADS1231::poll(Sample &sample)
 {
-    // read sensor raw data  to sample argument using readRaw() and return true if successful, false otherwise
+    // Read sensor raw data into sample and propagate readiness/device errors.
 
     int32_t raw_value = 0;
 
-    esp_err_t err = readRaw(raw_value);
+    const esp_err_t err = readRaw(raw_value);
     if (err != ESP_OK) {
-        return false;
+        return err;
     }
     sample.raw = raw_value;
-    return true;
+    return ESP_OK;
 }

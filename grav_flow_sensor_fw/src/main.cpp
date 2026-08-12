@@ -68,7 +68,7 @@ struct VolumeTestData {
 
 QueueHandle_t q_protocol_to_main;
 QueueHandle_t q_main_to_protocol;
-static ADS1231 adc(GPIO_NUM_17, GPIO_NUM_16);
+static ADS1231 adc(GPIO_NUM_17, GPIO_NUM_16, GPIO_NUM_18);
 static KeepCfg kc;
 static ProgramParameters work_params(0, 1800, 0, 0);
 static regs_action main_reg_act;
@@ -89,11 +89,16 @@ static bool read_ads1231(ADS1231::Sample &sample, TickType_t mutex_timeout) {
         return false;
     }
 
-    while (!adc.poll(sample)) {
+    esp_err_t err;
+    while ((err = adc.poll(sample)) == ESP_ERR_NOT_FINISHED) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     xSemaphoreGive(ads1231_mutex);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ADS1231 read failed: %s", esp_err_to_name(err));
+        return false;
+    }
     return true;
 }
 
@@ -237,7 +242,12 @@ static void weight_test_task(void *arg){
 
             bool sample_ready = false;
             if (xSemaphoreTake(ads1231_mutex, portMAX_DELAY) == pdTRUE) {
-                sample_ready = adc.poll(adc_sample);
+                const esp_err_t poll_err = adc.poll(adc_sample);
+                sample_ready = poll_err == ESP_OK;
+                if (poll_err != ESP_OK && poll_err != ESP_ERR_NOT_FINISHED) {
+                    ESP_LOGE(TAG, "ADS1231 poll failed: %s",
+                             esp_err_to_name(poll_err));
+                }
                 xSemaphoreGive(ads1231_mutex);
             }
             if (sample_ready) {
