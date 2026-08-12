@@ -37,7 +37,7 @@ static constexpr gpio_num_t VOLUME_HIGH_GPIO = GPIO_NUM_19;
 static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 200;                                  // 10s to start filling, must be < 100s 
 static constexpr uint16_t VOLUME_TIMEOUT_HIGH_DS = 600;                                 // 60s to fill, must be < 100s    
 static constexpr uint32_t VOLUME_GPIO_SAMPLE_PERIOD_MS = 25;                            // 25 ms sample period for volume test task 
-static constexpr int64_t VOLUME_GPIO_STABLE_LOW_US = 100000;                            // 100 ms stable low to detect edge 
+static constexpr int64_t VOLUME_GPIO_STABLE_HIGH_US = 100000;                           // 100 ms stable high to detect edge
 
 enum class TestState : uint16_t {
     stop = 0,
@@ -105,21 +105,21 @@ static void stop_volume_test(uint16_t time2fill_ds) {                           
     }
 }
 
-static bool wait_for_stable_low(gpio_num_t gpio, uint16_t timeout_ds,
-                                int64_t timeout_started_us,
-                                int64_t &low_started_us,
-                                int64_t fill_started_us = 0) 
-{                                                                                  // wait for gpio to go low and stay low for at least 100 ms
+static bool wait_for_stable_high(gpio_num_t gpio, uint16_t timeout_ds,
+                                 int64_t timeout_started_us,
+                                 int64_t &high_started_us,
+                                 int64_t fill_started_us = 0)
+{                                                                                  // wait for a low-to-high transition and 100 ms stable high
     const int64_t timeout_us = static_cast<int64_t>(timeout_ds) * 100000;
-    bool high_seen = gpio_get_level(gpio) != 0;
-    int64_t candidate_low_us = 0;
+    bool low_seen = gpio_get_level(gpio) == 0;
+    int64_t candidate_high_us = 0;
     TickType_t next_sample = xTaskGetTickCount();                                  // rtos ticks since task was scheduled
 
     while (true) {
         vTaskDelayUntil(
             &next_sample, pdMS_TO_TICKS(VOLUME_GPIO_SAMPLE_PERIOD_MS));           // wait for next sample period  
         const int64_t now_us = esp_timer_get_time();                              // time since timer was initialized                                   
-        const bool is_low = gpio_get_level(gpio) == 0;                            // read gpio level  
+        const bool is_high = gpio_get_level(gpio) != 0;                           // read gpio level
 
         if (fill_started_us != 0) {                                               // if fill_started_us is provided, update time2fill_ds in volume_test_data  
             const uint16_t elapsed_ds = static_cast<uint16_t>(
@@ -131,15 +131,15 @@ static bool wait_for_stable_low(gpio_num_t gpio, uint16_t timeout_ds,
             }
         }
 
-        if (!is_low) {
-            high_seen = true;
-            candidate_low_us = 0;
-        } else if (high_seen) {
-            if (candidate_low_us == 0) {
-                candidate_low_us = now_us;
-            } else if (now_us - candidate_low_us >=
-                       VOLUME_GPIO_STABLE_LOW_US) {
-                low_started_us = candidate_low_us;
+        if (!is_high) {
+            low_seen = true;
+            candidate_high_us = 0;
+        } else if (low_seen) {
+            if (candidate_high_us == 0) {
+                candidate_high_us = now_us;
+            } else if (now_us - candidate_high_us >=
+                       VOLUME_GPIO_STABLE_HIGH_US) {
+                high_started_us = candidate_high_us;
                 return true;
             }
         }
@@ -170,15 +170,15 @@ static void volume_test_task(void *arg) {
 
         const int64_t low_wait_started_us = esp_timer_get_time();
         int64_t low_edge_us = 0;
-        if (!wait_for_stable_low(VOLUME_LOW_GPIO, timeout_low_ds,                   // wait for GPIO20 to go low for at least 100 ms 
-                                 low_wait_started_us, low_edge_us)) {
+        if (!wait_for_stable_high(VOLUME_LOW_GPIO, timeout_low_ds,                  // wait for GPIO20 low-to-high and 100 ms stable high
+                                  low_wait_started_us, low_edge_us)) {
             stop_volume_test(0);                                                    // gpio20 timeout, stop test and set time2fill_ds to 0
             ESP_LOGI(TAG, "Volume test stopped: GPIO20 timeout");
             continue;
         }
 
         int64_t high_edge_us = 0;
-        const bool high_edge_reached = wait_for_stable_low(                         // wait for GPIO19 to go low for at least 100 ms      
+        const bool high_edge_reached = wait_for_stable_high(                        // wait for GPIO19 low-to-high and 100 ms stable high
             VOLUME_HIGH_GPIO, timeout_high_ds, low_edge_us, high_edge_us,
             low_edge_us);
         const int64_t stopped_us =                                                  // stop time is either GPIO19 edge or timeout 

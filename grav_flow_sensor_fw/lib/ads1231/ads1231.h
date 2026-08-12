@@ -8,7 +8,6 @@ class ADS1231 {
 public:
     struct Sample {
         int32_t raw;        // signed 24-bit ADC value sign-extended to int32_t
-        float normalized;   // approximately -1.0 to +1.0
     };
 
     ADS1231(gpio_num_t sclk_gpio, gpio_num_t dout_gpio);

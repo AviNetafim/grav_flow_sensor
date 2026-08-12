@@ -63,6 +63,8 @@ void ADS1231::clockPulse() const
 
 esp_err_t ADS1231::readRaw(int32_t &value)
 {
+    // convert adc serial data to int32_t value
+    
     if (!isReady()) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -98,18 +100,14 @@ esp_err_t ADS1231::readRaw(int32_t &value)
 
 bool ADS1231::poll(Sample &sample)
 {
+    // read sensor raw data  to sample argument using readRaw() and return true if successful, false otherwise
+
     int32_t raw_value = 0;
 
     esp_err_t err = readRaw(raw_value);
     if (err != ESP_OK) {
         return false;
     }
-
     sample.raw = raw_value;
-
-    // Signed 24-bit full scale is approximately:
-    // -8388608 to +8388607
-    sample.normalized = static_cast<float>(raw_value) / 8388608.0f;
-
     return true;
 }
