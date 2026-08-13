@@ -24,11 +24,11 @@ static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                   
 static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 1000000;                              // TEMP DEBUG: print weight every 1 s
 static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900;                                 // 90 s, must be < 100 s
 
-static constexpr int64_t CAL_DIV = 14226;                                               // calibration factors for 10 mg units, derived from calibration with known weight
-static constexpr int64_t CAL_OFFSET = 381;                                              // for development loadcell
+//static constexpr int64_t CAL_DIV = 14226;                                               // calibration factors for 10 mg units, derived from calibration with known weight
+//static constexpr int64_t CAL_OFFSET = 381;                                              // for development loadcell
 
-// static constexpr int64_t CAL_DIV = 12060;                                               // calibration factors for test bench 10 mg units, derived from calibration with known weight
-// static constexpr int64_t CAL_OFFSET = -4265;                                            // for ttest bench load cel 
+static constexpr int64_t CAL_DIV = 12060;                                                 // calibration factors for test bench 10 mg units, derived from calibration with known weight
+static constexpr int64_t CAL_OFFSET = -4265;                                              // for ttest bench load cel 
 
 static constexpr int64_t CAL_MUL = 100;                                                 
 
