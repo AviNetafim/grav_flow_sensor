@@ -1,8 +1,10 @@
 """Tkinter GUI for the gravimetric flow sensor test bench."""
 
+import csv
 import tkinter as tk
 import tkinter.font as tkfont
 import time
+from pathlib import Path
 from tkinter import ttk
 
 from tcp_com import TcpCom
@@ -11,6 +13,10 @@ from tcp_com import TcpCom
 ESP32_IP = "192.168.4.1"
 PORT = 502
 SOCKET_TIMEOUT = 3
+REG_SAMPLES = 32
+SAMPLES_REGISTER_ADDRESS = 5
+SAMPLES_POINTER_ADDRESS = 6
+SAMPLES_CSV_FILE = Path("weight_samples.csv")
 
 
 class FlowSensorGUI:
@@ -150,7 +156,10 @@ class FlowSensorGUI:
         )
 
         ttk.Button(container, text="Start Test", command=self.run_test).grid(row=3, column=0, padx=(0, 8), sticky="nsew")
-        ttk.Button(container, text="Get Samples", command=self.get_samples).grid(row=3, column=1, sticky="nsew")
+        self.get_samples_button = ttk.Button(
+            container, text="Get Samples", command=self.get_samples, state="disabled"
+        )
+        self.get_samples_button.grid(row=3, column=1, sticky="nsew")
         self.tare_button = ttk.Button(container, text="Tare", command=self.tare)
         self.tare_button.grid(row=3, column=2, padx=(8, 0), sticky="nsew")
         ttk.Button(container, text="Exit", command=self.root.destroy).grid(row=3, column=3, padx=(8, 0), sticky="nsew")
@@ -250,6 +259,8 @@ class FlowSensorGUI:
         self._test_generation += 1
         test_generation = self._test_generation
         self._test_active = False
+        self.weight_count = 0
+        self.get_samples_button.configure(state="disabled")
         self.test_time.set("--")
         self.test_progress_time.set("0.0")
         self.sample_count.set("--")
@@ -382,6 +393,8 @@ class FlowSensorGUI:
         self._test_active = False
         time_to_fill = payload[1]
         self.weight_count = payload[2]
+        if self.weight_count > 0:
+            self.get_samples_button.configure(state="normal")
         if time_to_fill <= 0 or time_to_fill >= timeout:
             self.flow.set("--")
             self.error_message.set("weight test timeout")
@@ -437,9 +450,44 @@ class FlowSensorGUI:
         self.error_message.set("")
 
     def get_samples(self) -> None:
-        """Get sensor samples. Add flow-sensor client code here."""
-        # TODO: Request samples from the flow-sensor client.
-        pass
+        """Download the completed weight-test samples and append them to CSV."""
+        if self._test_active or self.weight_count <= 0:
+            return
+
+        samples: list[int] = []
+        for pointer in range(0, self.weight_count, REG_SAMPLES):
+            error_code = self.tc.write(
+                rtu=1,
+                address=SAMPLES_POINTER_ADDRESS,
+                index=0,
+                size=1,
+                payload=[pointer],
+            )
+            if error_code != 0:
+                self.error_message.set("Error while setting the samples pointer.")
+                return
+
+            error_code, payload = self.tc.read(
+                rtu=1,
+                address=SAMPLES_REGISTER_ADDRESS,
+                index=0,
+                size=REG_SAMPLES,
+            )
+            if error_code != 0 or len(payload) < REG_SAMPLES:
+                self.error_message.set("Error while reading weight samples.")
+                return
+
+            remaining = self.weight_count - pointer
+            samples.extend(payload[: min(REG_SAMPLES, remaining)])
+
+        try:
+            with SAMPLES_CSV_FILE.open("a", newline="", encoding="utf-8") as csv_file:
+                csv.writer(csv_file).writerows((sample,) for sample in samples)
+        except OSError as exc:
+            self.error_message.set(f"Error while writing samples CSV: {exc}")
+            return
+
+        self.error_message.set("")
 
 
 def main() -> None:
