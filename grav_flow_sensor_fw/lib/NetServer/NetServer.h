@@ -25,10 +25,11 @@
 
 #define TCP_PORT 502
 #define MAX_BUF  128
-#define COM_PRT true
+#define CONFIG 9                                                        // config register        
+#define COM_PRT 6                                                       // config register com_prt switch                                      
 
-static constexpr uint8_t REG_MAP_SIZE = 10;                                        // number of registers
-static constexpr uint8_t REG_SAMPLES = 32;                                             // weight samples size 
+static constexpr uint8_t REG_MAP_SIZE = 10;                             // number of registers
+static constexpr uint8_t REG_SAMPLES = 32;                              // weight samples size 
 
 #define myRTU 0x01                                                      // RTU ID
 #define RTU 0                                                           // command index of RTU                                              
