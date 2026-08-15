@@ -56,7 +56,6 @@ void NetServer::tcp_server_task(){
             if (_rx_len <= 0)
                 break;
             /* Wake protocol task */
-            printf("received %d bytes: ", _rx_len);
             for (int i = 0; i < _rx_len; i++) {
                 printf("%02X ", _rx_buf[i]);
             }
@@ -91,7 +90,7 @@ void NetServer::protocol_task(){
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                            // client data is available
     if (*(_regs[CONFIG].point+COM_PRT) == 1) prt_sw = true;
     else prt_sw = false;
-    printf("protocol task print switch = %s\n", prt_sw ? "true" : "false");
+    // printf("protocol task print switch = %s\n", prt_sw ? "true" : "false");
     if (prt_sw) printf("protocol task woken up\n");
     if (_rx_len > 0) {                                                        
       if (prt_sw){
