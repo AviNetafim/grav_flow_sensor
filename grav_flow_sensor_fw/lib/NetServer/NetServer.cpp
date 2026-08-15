@@ -56,11 +56,6 @@ void NetServer::tcp_server_task(){
             if (_rx_len <= 0)
                 break;
             /* Wake protocol task */
-            for (int i = 0; i < _rx_len; i++) {
-                printf("%02X ", _rx_buf[i]);
-            }
-            printf("\n");
-
             xTaskNotifyGive(_protocol_task_handle);
         }
 

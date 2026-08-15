@@ -3,8 +3,8 @@
   "volume": 12,
   "samples_file": "weight_samples",
   "stable_time": 100,
-  "cal_div": 12060,
-  "cal_offset": -4265,
+  "cal_div": 14166,
+  "cal_offset": 381,
   "com_prt": 0,
   "show_sample": 0,
   "show_regs": 0
