@@ -87,10 +87,11 @@ void NetServer::protocol_task_entry(void *arg){
 void NetServer::protocol_task(){
   int retcode;
   bool prt_sw = false;
-  if (*(_regs[CONFIG].point+COM_PRT) == 1) prt_sw = true;
-  printf("protocol task print switch = %s\n", prt_sw ? "true" : "false");
   while (1){
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                            // client data is available
+    if (*(_regs[CONFIG].point+COM_PRT) == 1) prt_sw = true;
+    else prt_sw = false;
+    printf("protocol task print switch = %s\n", prt_sw ? "true" : "false");
     if (prt_sw) printf("protocol task woken up\n");
     if (_rx_len > 0) {                                                        
       if (prt_sw){
