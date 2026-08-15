@@ -1,0 +1,11 @@
+{
+  "volume_0": 3,
+  "volume": 12,
+  "samples_file": "weight_samples",
+  "stable_time": 100,
+  "cal_div": 12060,
+  "cal_offset": -4265,
+  "com_prt": 0,
+  "show_sample": 0,
+  "show_regs": 0
+}

@@ -1,6 +1,8 @@
 """Tkinter GUI for the gravimetric flow sensor test bench."""
 
 import csv
+import json
+import math
 import tkinter as tk
 import tkinter.font as tkfont
 import time
@@ -16,7 +18,9 @@ SOCKET_TIMEOUT = 3
 REG_SAMPLES = 32
 SAMPLES_REGISTER_ADDRESS = 5                                    
 SAMPLES_POINTER_ADDRESS = 6
-SAMPLES_CSV_FILE = Path("weight_samples.csv")
+CONFIG_REGISTER_ADDRESS = 9
+CONFIG_FILE = Path(__file__).with_name("flow_sensor_config.json")
+GUI_TIMEOUT_MARGIN_DS = 20
 
 
 class FlowSensorGUI:
@@ -25,7 +29,7 @@ class FlowSensorGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Gravimetric Flow Sensor Test Bench")
-        self.root.geometry("760x640")
+        self.root.geometry("900x640")
         self.root.minsize(640, 540)
         self.root.resizable(True, True)
         self.root.columnconfigure(0, weight=1)
@@ -38,23 +42,21 @@ class FlowSensorGUI:
 
         self.test_method = tk.IntVar(value=0)
         self.weight_target = tk.StringVar()
-        self.vessel_volume = tk.StringVar()
-        self.weight_timeout = tk.StringVar()
-        self.volume_timeout = tk.StringVar()
+        self.flow_range_min = tk.StringVar()
+        self.config: dict[str, object] = {}
+        self.controller_config: list[int] = []
 
         self.test_time = tk.StringVar(value="--")
         self.test_progress_time = tk.StringVar(value="--")
-        self.sample_count = tk.StringVar(value="--")
         self.flow = tk.StringVar(value="--")
-        self.actual_weight = tk.StringVar(value="--")
-        self.tare_weight = 0                                                # 10 mg units, matching the samples register
-        self.actual_weight_10mg: int | None = None
+        self.raw_weight = tk.StringVar(value="--")
         self.error_message = tk.StringVar()
         self.weight_count = 0
         self._test_generation = 0
         self._test_active = False
 
         self._build_ui()
+        self.load_configuration()
         self._update_method_fields()
 
     def _configure_styles(self) -> None:
@@ -113,56 +115,46 @@ class FlowSensorGUI:
         inputs = ttk.LabelFrame(container, text="Test settings", padding=6)
         inputs.grid(row=1, column=0, columnspan=4, sticky="nsew", pady=(0, 8))
         inputs.columnconfigure(3, weight=1)
-        for row in range(4):
+        for row in range(2):
             inputs.rowconfigure(row, weight=1)
 
-        ttk.Label(inputs, text="Weight target:").grid(
-            row=0, column=0, sticky="w", pady=4
-        )
+        ttk.Label(inputs, text="Weight target:").grid(row=0, column=0, sticky="w", pady=4)
         self.weight_entry = ttk.Entry(inputs, textvariable=self.weight_target, width=16)
         self.weight_entry.grid(row=0, column=1, padx=8, pady=4, sticky="w")
-        ttk.Label(inputs, text="g (0–80)").grid(row=0, column=2, sticky="w")
+        ttk.Label(inputs, text="g (0-80)").grid(row=0, column=2, sticky="w")
 
-        ttk.Label(inputs, text="Vessel volume:").grid(row=1, column=0, sticky="w", pady=4)
-        self.volume_entry = ttk.Entry(inputs, textvariable=self.vessel_volume, width=16)
-        self.volume_entry.grid(row=1, column=1, padx=8, pady=4, sticky="w")
-        ttk.Label(inputs, text="cc (0–100)").grid(row=1, column=2, sticky="w")
-
-        ttk.Label(inputs, text="Weight timeout:").grid(row=2, column=0, sticky="w", pady=4)
-        self.weight_timeout_entry = ttk.Entry(inputs, textvariable=self.weight_timeout, width=16)
-        self.weight_timeout_entry.grid(row=2, column=1, padx=8, pady=4, sticky="w")
-        ttk.Label(inputs, text="ds (1–999)").grid(row=2, column=2, sticky="w")
-
-        ttk.Label(inputs, text="Volume timeout:").grid(row=3, column=0, sticky="w", pady=4)
-        self.volume_timeout_entry = ttk.Entry(inputs, textvariable=self.volume_timeout, width=16)
-        self.volume_timeout_entry.grid(row=3, column=1, padx=8, pady=4, sticky="w")
-        ttk.Label(inputs, text="ds (1–999)").grid(row=3, column=2, sticky="w")
+        ttk.Label(inputs, text="Flow range min:").grid(row=1, column=0, sticky="w", pady=4)
+        self.flow_min_entry = ttk.Entry(inputs, textvariable=self.flow_range_min, width=16)
+        self.flow_min_entry.grid(row=1, column=1, padx=8, pady=4, sticky="w")
+        ttk.Label(inputs, text="l/h (>0)").grid(row=1, column=2, sticky="w")
 
         results = ttk.LabelFrame(container, text="Test results", padding=6)
         results.grid(row=2, column=0, columnspan=4, sticky="nsew", pady=(0, 8))
         results.columnconfigure(3, weight=1)
-        for row in range(6):
+        for row in range(5):
             results.rowconfigure(row, weight=1)
 
         self._add_display_row(results, 0, "Test time:", self.test_time, "ds")
         self._add_display_row(
             results, 1, "Test progress time:", self.test_progress_time, "s"
         )
-        self._add_display_row(results, 2, "Sample count:", self.sample_count, "")
-        self._add_display_row(results, 3, "Flow:", self.flow, "")
-        self._add_display_row(results, 4, "Actual weight:", self.actual_weight, "g")
+        self._add_display_row(results, 2, "Flow:", self.flow, "")
+        self._add_display_row(results, 3, "Raw weight:", self.raw_weight, "")
         self._add_display_row(
-            results, 5, "Error message:", self.error_message, "", width=32
+            results, 4, "Error message:", self.error_message, "", width=32
         )
 
-        ttk.Button(container, text="Start Test", command=self.run_test).grid(row=3, column=0, padx=(0, 8), sticky="nsew")
+        buttons = ttk.Frame(container)
+        buttons.grid(row=3, column=0, columnspan=4, sticky="nsew")
+        for column in range(4):
+            buttons.columnconfigure(column, weight=1)
+        ttk.Button(buttons, text="Start Test", command=self.run_test).grid(row=0, column=0, padx=(0, 8), sticky="nsew")
         self.get_samples_button = ttk.Button(
-            container, text="Get Samples", command=self.get_samples, state="disabled"
+            buttons, text="Get Samples", command=self.get_samples, state="disabled"
         )
-        self.get_samples_button.grid(row=3, column=1, sticky="nsew")
-        self.tare_button = ttk.Button(container, text="Tare", command=self.tare)
-        self.tare_button.grid(row=3, column=2, padx=(8, 0), sticky="nsew")
-        ttk.Button(container, text="Exit", command=self.root.destroy).grid(row=3, column=3, padx=(8, 0), sticky="nsew")
+        self.get_samples_button.grid(row=0, column=1, sticky="nsew")
+        ttk.Button(buttons, text="Load Configuration", command=self.load_configuration).grid(row=0, column=2, padx=(8, 0), sticky="nsew")
+        ttk.Button(buttons, text="Exit", command=self.root.destroy).grid(row=0, column=3, padx=(8, 0), sticky="nsew")
 
     @staticmethod
     def _add_display_row(
@@ -181,31 +173,65 @@ class FlowSensorGUI:
 
     def _update_method_fields(self) -> None:
         weight_selected = self.test_method.get() == 0
-        volume_selected = self.test_method.get() == 1
         self.weight_entry.configure(state="normal" if weight_selected else "disabled")
-        self.weight_timeout_entry.configure(state="normal" if weight_selected else "disabled")
-        self.volume_entry.configure(state="normal" if volume_selected else "disabled")
-        self.volume_timeout_entry.configure(state="normal" if volume_selected else "disabled")
-        self.tare_button.configure(state="normal" if self.test_method.get() == 2 else "disabled")
+        range_selected = self.test_method.get() in (0, 1)
+        self.flow_min_entry.configure(state="normal" if range_selected else "disabled")
         self.error_message.set("")
 
-    def tare(self) -> None:
-        """Use the latest calibration sample as the zero-weight offset."""
-        if self.test_method.get() != 2 or self.actual_weight_10mg is None:
+    @staticmethod
+    def _timeout_ds(amount: float, min_flow_lph: float) -> int:
+        """Convert water cc/g at l/h to ds, rounded up to whole seconds."""
+        return math.ceil(amount * 3.6 / min_flow_lph) * 10
+
+    def load_configuration(self) -> None:
+        """Load and validate configuration from disk."""
+        try:
+            with CONFIG_FILE.open(encoding="utf-8") as config_file:
+                config = json.load(config_file)
+            volume_0 = float(config["volume_0"])
+            volume = float(config["volume"])
+            stable_time = int(config["stable_time"])
+            cal_div = int(config["cal_div"])
+            cal_offset = int(config["cal_offset"])
+            samples_file = str(config["samples_file"]).strip()
+            flags = [int(config[name]) for name in ("com_prt", "show_sample", "show_regs")]
+            if volume_0 <= 0 or volume <= 0 or not 0 <= stable_time <= 65535:
+                raise ValueError("volumes must be positive and stable_time must fit uint16")
+            if not 0 < cal_div <= 65535 or not -32768 <= cal_offset <= 32767:
+                raise ValueError("cal_div or cal_offset exceeds its register range")
+            if not samples_file or Path(samples_file).suffix or Path(samples_file).name != samples_file:
+                raise ValueError("samples_file must not include an extension")
+            if any(flag not in (0, 1) for flag in flags):
+                raise ValueError("configuration flags must be 0 or 1")
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            self.error_message.set(f"Configuration load error: {exc}")
             return
 
-        self.tare_weight = self.actual_weight_10mg
-        print(f"Tare weight set to {self.tare_weight} (10 mg units)"    )
-        self.actual_weight.set("0.00")
+        self.config = config
+        static_values = [
+            stable_time,
+            cal_div,
+            cal_offset & 0xFFFF,
+            *flags,
+        ]
+        error_code = self.tc.write(
+            rtu=1,
+            address=CONFIG_REGISTER_ADDRESS,
+            index=3,
+            size=len(static_values),
+            payload=static_values,
+        )
+        if error_code != 0:
+            self.error_message.set("Configuration loaded, but controller update failed.")
+            return
         self.error_message.set("")
 
     def _get_active_settings(self) -> tuple[float, int] | None:
-        """Validate and return the selected target and timeout."""
+        """Validate inputs and return the measured amount and timeout."""
         is_weight = self.test_method.get() == 0
-        target_text = self.weight_target.get() if is_weight else self.vessel_volume.get()
-        timeout_text = (self.weight_timeout.get() if is_weight else self.volume_timeout.get())
-        target_name = "Weight target" if is_weight else "Vessel volume"
-        target_limit = 80.0 if is_weight else 100.0
+        target_text = self.weight_target.get() if is_weight else str(self.config.get("volume", ""))
+        target_name = "Weight target" if is_weight else "Configured volume"
+        target_limit = 80.0 if is_weight else 65535.0
 
         try:
             target = float(target_text)
@@ -214,37 +240,64 @@ class FlowSensorGUI:
             return None
 
         try:
-            timeout = int(timeout_text)
+            min_flow = float(self.flow_range_min.get())
         except ValueError:
-            self.error_message.set("Timeout must be an integer.")
+            self.error_message.set("Flow range min must be a number.")
             return None
 
         if not 0 < target < target_limit:
             self.error_message.set(f"{target_name} must be greater than 0 and less than {target_limit:g}.")
             return None
-        if not 0 < timeout < 1000:
-            self.error_message.set("Timeout must be greater than 0 and less than 1000 ds.")
+        if min_flow <= 0:
+            self.error_message.set("Flow range min must be greater than 0.")
+            return None
+        timeout = self._timeout_ds(target, min_flow)
+        if timeout > 65535:
+            self.error_message.set("Calculated timeout exceeds the controller limit.")
             return None
 
         self.error_message.set("")
         return target, timeout
 
-    def update_test_result(self, elapsed_time: int) -> None:
-        """Update displays with a time value supplied by the sensor client."""
-        settings = self._get_active_settings()
-        if settings is None:
-            return
+    def _build_controller_config(self) -> list[int] | None:
+        try:
+            min_flow = float(self.flow_range_min.get())
+            weight_text = self.weight_target.get().strip()
+            weight = float(weight_text) if weight_text else 0.0
+            if min_flow <= 0 or weight < 0:
+                raise ValueError("flow range min must be positive")
+            values = [
+                self._timeout_ds(float(self.config["volume_0"]), min_flow),
+                self._timeout_ds(float(self.config["volume"]), min_flow),
+                self._timeout_ds(weight, min_flow) if weight else 0,
+                int(self.config["stable_time"]),
+                int(self.config["cal_div"]),
+                int(self.config["cal_offset"]) & 0xFFFF,
+                int(self.config["com_prt"]),
+                int(self.config["show_sample"]),
+                int(self.config["show_regs"]),
+            ]
+            if any(value < 0 or value > 65535 for value in values):
+                raise ValueError("a value exceeds the controller register limit")
+        except (KeyError, TypeError, ValueError) as exc:
+            self.error_message.set(f"Configuration error: {exc}")
+            return None
+        return values
 
-        target, timeout = settings
-        if elapsed_time >= timeout:
-            self.test_time.set(str(elapsed_time))
-            self.flow.set("--")
-            self.error_message.set("Test timed out.")
-            return
-
-        self.test_time.set(str(elapsed_time))
-        self.flow.set(f"{elapsed_time / target:.3f}")
+    def _update_controller_configuration(self) -> bool:
+        """Write the nine active words of the controller configuration register."""
+        values = self._build_controller_config()
+        if values is None:
+            return False
+        error_code = self.tc.write(
+            rtu=1, address=CONFIG_REGISTER_ADDRESS, index=0, size=9, payload=values
+        )
+        if error_code != 0:
+            self.error_message.set("Error while downloading controller configuration.")
+            return False
+        self.controller_config = values
         self.error_message.set("")
+        return True
 
     def run_test(self) -> None:
         """Start a test. Add flow-sensor client code here."""
@@ -256,6 +309,8 @@ class FlowSensorGUI:
             if settings is None:
                 return
             target, timeout = settings
+            if not self._update_controller_configuration():
+                return
         self._test_generation += 1
         test_generation = self._test_generation
         self._test_active = False
@@ -263,10 +318,8 @@ class FlowSensorGUI:
         self.get_samples_button.configure(state="disabled")
         self.test_time.set("--")
         self.test_progress_time.set("0.0")
-        self.sample_count.set("--")
         self.flow.set("--")
-        self.actual_weight.set("--")
-        self.actual_weight_10mg = None
+        self.raw_weight.set("--")
         self.error_message.set("")
         error_code = self.tc.write(                                                 # set test mode on controller        
             rtu=1, address=0, index=0, size=1, payload=[mode]
@@ -294,17 +347,20 @@ class FlowSensorGUI:
             self.error_message.set("Error while starting test on controller.")
             return
 
-        if mode == 2:                                                             # calibrate mode, read calibration weight after 500 ms      
-            self.root.after(500, self._read_calibration_weight, test_generation)
+        if mode == 2:                                                             # calibrate mode, read raw load-cell value after 500 ms
+            self.root.after(500, self._read_calibration_raw, test_generation)
             return
 
         self._test_active = True
         started_at = time.monotonic()
+        poll_timeout = timeout + GUI_TIMEOUT_MARGIN_DS
+        if mode == 1:
+            poll_timeout += self.controller_config[0]
         self.root.after(
-            100, self._update_test_progress, test_generation, started_at, timeout
+            100, self._update_test_progress, test_generation, started_at, poll_timeout
         )
 
-        deadline = started_at + timeout / 10
+        deadline = started_at + poll_timeout / 10
         if mode == 0:
             self.root.after(
                 1000,
@@ -324,22 +380,20 @@ class FlowSensorGUI:
                 test_generation,
             )
 
-    def _read_calibration_weight(self, test_generation: int) -> None:
+    def _read_calibration_raw(self, test_generation: int) -> None:
         if test_generation != self._test_generation:
             return
 
         error_code, payload = self.tc.read(
-            rtu=1, address=5, index=0, size=1
+            rtu=1, address=5, index=0, size=2
         )
-        if error_code != 0 or len(payload) < 1:
-            self.error_message.set("Error while reading calibration weight.")
+        if error_code != 0 or len(payload) < 2:
+            self.error_message.set("Error while reading raw load-cell value.")
             return
 
-        self.actual_weight_10mg = payload[0]
-        print(f"Calibration weight read: {self.actual_weight_10mg} (10 mg units)")
-        net_weight_10mg = self.actual_weight_10mg - self.tare_weight
-        print(f"Net weight: {net_weight_10mg} (10 mg units)")
-        self.actual_weight.set(f"{net_weight_10mg / 100:.2f}")
+        raw_unsigned = payload[0] | (payload[1] << 16)
+        raw_value = raw_unsigned - (1 << 32) if raw_unsigned & (1 << 31) else raw_unsigned
+        self.raw_weight.set(str(raw_value))
         self.error_message.set("")
 
     def _update_test_progress(
@@ -401,7 +455,6 @@ class FlowSensorGUI:
             return
 
         self.test_time.set(str(time_to_fill))
-        self.sample_count.set(str(self.weight_count))
         self.flow.set(f"{weight / time_to_fill * 36:.3f}")
         self.error_message.set("")
 
@@ -481,7 +534,8 @@ class FlowSensorGUI:
             samples.extend(payload[: min(REG_SAMPLES, remaining)])
 
         try:
-            with SAMPLES_CSV_FILE.open("a", newline="", encoding="utf-8") as csv_file:
+            samples_path = CONFIG_FILE.with_name(f"{self.config['samples_file']}.csv")
+            with samples_path.open("a", newline="", encoding="utf-8") as csv_file:
                 csv.writer(csv_file).writerows((sample,) for sample in samples)
         except OSError as exc:
             self.error_message.set(f"Error while writing samples CSV: {exc}")

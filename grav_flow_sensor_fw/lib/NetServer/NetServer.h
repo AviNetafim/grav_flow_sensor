@@ -27,7 +27,7 @@
 #define MAX_BUF  128
 #define COM_PRT true
 
-static constexpr uint8_t REG_MAP_SIZE = 9;                                         // number of registers                 
+static constexpr uint8_t REG_MAP_SIZE = 10;                                        // number of registers
 static constexpr uint8_t REG_SAMPLES = 32;                                             // weight samples size 
 
 #define myRTU 0x01                                                      // RTU ID
@@ -57,6 +57,7 @@ struct regs_action {
     uint16_t pointer[1] = {0x09};                                       // pointer to samlpes buffer
     uint16_t actuator[2] = {0x0a,0x0b};                                 // actuator direction selection                     
     uint16_t actuate[1] = {0x14};                                       // actuate selected actuator and dier 
+    uint16_t config[10] = {200, 600, 900, 100, 12060, 0xEF57, 0, 0, 0, 0}; // timeouts, calibration, flags, reserved
     uint8_t  ret_code;
 };
 
@@ -95,7 +96,8 @@ class NetServer{
             {REG_SAMPLES,&_reg_act.samples[0]},
             {1,&_reg_act.pointer[0]},
             {2,&_reg_act.actuator[0]},
-            {1,&_reg_act.actuate[0]}            
+            {1,&_reg_act.actuate[0]},
+            {10,&_reg_act.config[0]}
         };
 };
 

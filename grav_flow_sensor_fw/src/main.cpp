@@ -22,22 +22,12 @@ static const char *TAG = "MAIN";
 static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
 static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 1000000;                              // TEMP DEBUG: print weight every 1 s
-static constexpr uint16_t WEIGHT_TEST_TIMEOUT_DS = 900;                                 // 90 s, must be < 100 s
 
-//static constexpr int64_t CAL_DIV = 14226;                                               // calibration factors for 10 mg units, derived from calibration with known weight
-//static constexpr int64_t CAL_OFFSET = 381;                                              // for development loadcell
-
-static constexpr int64_t CAL_DIV = 12060;                                                 // calibration factors for test bench 10 mg units, derived from calibration with known weight
-static constexpr int64_t CAL_OFFSET = -4265;                                              // for ttest bench load cel 
-
-static constexpr int64_t CAL_MUL = 100;                                                 
+static constexpr int64_t CAL_MUL = 100;
 
 static constexpr gpio_num_t VOLUME_LOW_GPIO = GPIO_NUM_20;
 static constexpr gpio_num_t VOLUME_HIGH_GPIO = GPIO_NUM_19;
-static constexpr uint16_t VOLUME_TIMEOUT_LOW_DS = 200;                                  // 10s to start filling, must be < 100s 
-static constexpr uint16_t VOLUME_TIMEOUT_HIGH_DS = 600;                                 // 60s to fill, must be < 100s    
 static constexpr uint32_t VOLUME_GPIO_SAMPLE_PERIOD_MS = 25;                            // 25 ms sample period for volume test task 
-static constexpr int64_t VOLUME_GPIO_STABLE_HIGH_US = 100000;                           // 100 ms stable high to detect edge
 
 enum class TestState : uint16_t {
     stop = 0,
@@ -55,6 +45,8 @@ struct WeightTestData {
     uint16_t time2target_ds;
     uint16_t target_weight_10mg;                                        // target wegiht increment 
     uint16_t timeout_ds;                                                // timeout to target weight
+    uint16_t cal_div;
+    int16_t cal_offset;
     size_t sample_count;
     int32_t samples[WEIGHT_TEST_MAX_SAMPLES];
 };
@@ -64,6 +56,7 @@ struct VolumeTestData {
     uint16_t time2fill_ds;
     uint16_t timeout_low_ds;
     uint16_t timeout_high_ds;
+    uint16_t stable_time_ms;
 };
 
 QueueHandle_t q_protocol_to_main;
@@ -78,10 +71,10 @@ static TaskHandle_t weight_test_task_handle;
 static SemaphoreHandle_t volume_test_mutex;
 static TaskHandle_t volume_test_task_handle;
 static WeightTestData weight_test_data = {
-    TestState::stop, 0, 0, WEIGHT_TEST_TIMEOUT_DS, 0, {0}
+    TestState::stop, 0, 0, 0, 12060, -4265, 0, {0}
 };
 static VolumeTestData volume_test_data = {
-    TestState::stop, 0, VOLUME_TIMEOUT_LOW_DS, VOLUME_TIMEOUT_HIGH_DS
+    TestState::stop, 0, 0, 0, 0
 };
 
 static bool read_ads1231(ADS1231::Sample &sample, TickType_t mutex_timeout) {
@@ -113,8 +106,9 @@ static void stop_volume_test(uint16_t time2fill_ds) {                           
 static bool wait_for_stable_high(gpio_num_t gpio, uint16_t timeout_ds,
                                  int64_t timeout_started_us,
                                  int64_t &high_started_us,
+                                 uint16_t stable_time_ms,
                                  int64_t fill_started_us = 0)
-{                                                                                  // wait for a low-to-high transition and 100 ms stable high
+{                                                                                  // wait for a stable low-to-high transition
     const int64_t timeout_us = static_cast<int64_t>(timeout_ds) * 100000;
     bool low_seen = gpio_get_level(gpio) == 0;
     int64_t candidate_high_us = 0;
@@ -143,7 +137,7 @@ static bool wait_for_stable_high(gpio_num_t gpio, uint16_t timeout_ds,
             if (candidate_high_us == 0) {
                 candidate_high_us = now_us;
             } else if (now_us - candidate_high_us >=
-                       VOLUME_GPIO_STABLE_HIGH_US) {
+                       static_cast<int64_t>(stable_time_ms) * 1000) {
                 high_started_us = candidate_high_us;
                 return true;
             }
@@ -163,11 +157,13 @@ static void volume_test_task(void *arg) {
 
         uint16_t timeout_low_ds;
         uint16_t timeout_high_ds;
+        uint16_t stable_time_ms;
         if (xSemaphoreTake(volume_test_mutex, portMAX_DELAY) != pdTRUE) {
             continue;
         }
         timeout_low_ds = volume_test_data.timeout_low_ds;                           // update local copies of timeouts
         timeout_high_ds = volume_test_data.timeout_high_ds;
+        stable_time_ms = volume_test_data.stable_time_ms;
         xSemaphoreGive(volume_test_mutex);
 
         ESP_LOGI(TAG, "Volume test started: low timeout=%u ds, high timeout=%u ds", 
@@ -175,16 +171,16 @@ static void volume_test_task(void *arg) {
 
         const int64_t low_wait_started_us = esp_timer_get_time();
         int64_t low_edge_us = 0;
-        if (!wait_for_stable_high(VOLUME_LOW_GPIO, timeout_low_ds,                  // wait for GPIO20 low-to-high and 100 ms stable high
-                                  low_wait_started_us, low_edge_us)) {
+        if (!wait_for_stable_high(VOLUME_LOW_GPIO, timeout_low_ds,                  // wait for stable GPIO20 low-to-high
+                                  low_wait_started_us, low_edge_us, stable_time_ms)) {
             stop_volume_test(0);                                                    // gpio20 timeout, stop test and set time2fill_ds to 0
             ESP_LOGI(TAG, "Volume test stopped: GPIO20 timeout");
             continue;
         }
 
         int64_t high_edge_us = 0;
-        const bool high_edge_reached = wait_for_stable_high(                        // wait for GPIO19 low-to-high and 100 ms stable high
-            VOLUME_HIGH_GPIO, timeout_high_ds, low_edge_us, high_edge_us,
+        const bool high_edge_reached = wait_for_stable_high(                        // wait for stable GPIO19 low-to-high
+            VOLUME_HIGH_GPIO, timeout_high_ds, low_edge_us, high_edge_us, stable_time_ms,
             low_edge_us);
         const int64_t stopped_us =                                                  // stop time is either GPIO19 edge or timeout 
             high_edge_reached ? high_edge_us : esp_timer_get_time();
@@ -207,11 +203,15 @@ static void weight_test_task(void *arg){
 
         uint16_t target_weight_10mg;
         uint16_t timeout_ds;
+        uint16_t cal_div;
+        int16_t cal_offset;
         if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) != pdTRUE) {
             continue;                                                       // skip the loop if semaphore was not aqcuired    
         }
         target_weight_10mg = weight_test_data.target_weight_10mg;           // get local copies of target weight 
         timeout_ds = weight_test_data.timeout_ds;                           // and timeout                             
+        cal_div = weight_test_data.cal_div;
+        cal_offset = weight_test_data.cal_offset;
         xSemaphoreGive(weight_test_mutex);
 
         ADS1231::Sample adc_sample;                                         // read weight
@@ -221,10 +221,10 @@ static void weight_test_task(void *arg){
 
         const int64_t tare_raw = static_cast<int64_t>(adc_sample.raw);      // update tare value (raw)
         ESP_LOGI(TAG, "Tare raw = %" PRId64 "" , tare_raw);
-        const int64_t target_raw_0 = static_cast<int64_t>(-CAL_OFFSET * CAL_DIV / CAL_MUL);
+        const int64_t target_raw_0 = static_cast<int64_t>(-cal_offset * cal_div / CAL_MUL);
         ESP_LOGI(TAG, "target 0 = %" PRId64 "" , target_raw_0);
         const int64_t target_delta_raw_abs =                                    // target raw = target_10mg 
-            static_cast<int64_t>(target_weight_10mg - CAL_OFFSET) * CAL_DIV / CAL_MUL;  // targert weigth converted to raw  units
+            static_cast<int64_t>(target_weight_10mg - cal_offset) * cal_div / CAL_MUL;  // target weight converted to raw units
         const int64_t target_delta_raw = target_delta_raw_abs - target_raw_0;
         ESP_LOGI(TAG, "target delta = %" PRId64 "" , target_delta_raw);
             const int64_t started_us = esp_timer_get_time();                // start_us (since timer was initialized)
@@ -252,7 +252,7 @@ static void weight_test_task(void *arg){
             }
             if (sample_ready) {
                 const int32_t weight_10mg = static_cast<int32_t>(
-                    (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_MUL / CAL_DIV);  // convert raw to weight in 10 mg units, add offset        
+                    (static_cast<int64_t>(adc_sample.raw) - tare_raw) * CAL_MUL / cal_div);  // convert raw to weight in 10 mg units
 
                 // TEMP DEBUG: report the current sensor reading once per second.
                 const int64_t now_us = esp_timer_get_time();
@@ -323,6 +323,9 @@ void show_reg_act(regs_action areg_act){
     for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.actuator[i]);
     printf("\n");     
     printf(" -- actuate:"); printf("%04x \n", areg_act.actuate[0]);
+    printf(" -- config:");
+    for (i = 0; i < 10; i++) printf(" %04x", areg_act.config[i]);
+    printf("\n");
 }
 
 void reg_action(regs_action &areg_act)
@@ -340,9 +343,6 @@ void reg_action(regs_action &areg_act)
                 areg_act.ret_code = 3;                                              // invalid mode
             }
         break;
-        case 61:                                                                    // set target weight (10mg units)
-            areg_act.ret_code = 0;
-        break;
         case 62:                                                                    // start test (weight/volume)
             printf("reg_action: test command received, mode=%u, test=%u\n", areg_act.mode[0], areg_act.test[0]);
             if (areg_act.test[0] == static_cast<uint16_t>(TestState::run)){  
@@ -350,15 +350,21 @@ void reg_action(regs_action &areg_act)
                 switch (static_cast<TestType>(areg_act.mode[0])){
                     case TestType::weight:                                          // start weight test task
                         if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+                            if (areg_act.config[4] == 0) {
+                                areg_act.ret_code = 3;
+                                xSemaphoreGive(weight_test_mutex);
+                                break;
+                            }
                             if (weight_test_data.test_state == TestState::run) {
-                                areg_act.ret_code = 2;                              // task already run
                                 xSemaphoreGive(weight_test_mutex);
                                 break;
                             }
                             weight_test_data.test_state = TestState::run;
                             weight_test_data.time2target_ds = 0;
                             weight_test_data.target_weight_10mg = areg_act.target_weight[0];
-                            weight_test_data.timeout_ds = WEIGHT_TEST_TIMEOUT_DS;
+                            weight_test_data.timeout_ds = areg_act.config[2];
+                            weight_test_data.cal_div = areg_act.config[4];
+                            weight_test_data.cal_offset = static_cast<int16_t>(areg_act.config[5]);
                             weight_test_data.sample_count = 0;
                             memset(weight_test_data.samples, 0, sizeof(weight_test_data.samples)); // clear samples buffer
                             xSemaphoreGive(weight_test_mutex);
@@ -370,14 +376,14 @@ void reg_action(regs_action &areg_act)
                     case TestType::volume:
                         if (xSemaphoreTake(volume_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                             if (volume_test_data.test_state == TestState::run) {    
-                                areg_act.ret_code = 2;
                                 xSemaphoreGive(volume_test_mutex);
                                 break;
                             }
                             volume_test_data.test_state = TestState::run;
                             volume_test_data.time2fill_ds = 0;
-                            volume_test_data.timeout_low_ds = VOLUME_TIMEOUT_LOW_DS;
-                            volume_test_data.timeout_high_ds = VOLUME_TIMEOUT_HIGH_DS;
+                            volume_test_data.timeout_low_ds = areg_act.config[0];
+                            volume_test_data.timeout_high_ds = areg_act.config[1];
+                            volume_test_data.stable_time_ms = areg_act.config[3];
                             xSemaphoreGive(volume_test_mutex);
                             xTaskNotifyGive(volume_test_task_handle);               // start volume test task
                         }
@@ -389,10 +395,9 @@ void reg_action(regs_action &areg_act)
                         ADS1231::Sample adc_sample;
                         if (read_ads1231(adc_sample, pdMS_TO_TICKS(50))) {
                             printf("Calibration raw reading: %ld\n", adc_sample.raw);
-                            const int32_t weight_10mg = static_cast<int32_t>(
-                                static_cast<int64_t>(adc_sample.raw) * CAL_MUL / CAL_DIV + CAL_OFFSET);
-                            areg_act.samples[0] = static_cast<uint16_t>(weight_10mg);
-                            printf("Calibration reading: %.2f g\n", static_cast<double>(weight_10mg) / 100.0);
+                            const uint32_t raw = static_cast<uint32_t>(adc_sample.raw);
+                            areg_act.samples[0] = static_cast<uint16_t>(raw & 0xFFFF);
+                            areg_act.samples[1] = static_cast<uint16_t>(raw >> 16);
                         } else {
                             printf("Calibration failed: could not read from ADS1231\n");
                             areg_act.ret_code = 1;
