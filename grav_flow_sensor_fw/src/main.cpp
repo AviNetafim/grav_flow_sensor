@@ -305,7 +305,7 @@ static void weight_test_task(void *arg){
 void show_reg_act(regs_action areg_act){
 
 	// show register states after client before and after ommand received, add configuration parameter to show registers (!)
-    if (areg_act.config[9] == 1):
+    if (areg_act.config[9] == 1){
         int i;
         printf("\nfunction = %d, address: = %d \n", areg_act.func,areg_act.address);	 // decoded required function and address
         printf(" -- mode :"); printf("%04x \n", areg_act.mode[0]);
@@ -510,9 +510,9 @@ extern "C" void app_main(void)
 
     while (true) {
         xQueueReceive(q_protocol_to_main, &main_reg_act, portMAX_DELAY);
-        if (COM_PRT) show_reg_act(main_reg_act);
+        show_reg_act(main_reg_act);
         reg_action(main_reg_act);
-        if (COM_PRT) show_reg_act(main_reg_act);
+        show_reg_act(main_reg_act);
         xQueueSend(q_main_to_protocol, &main_reg_act, portMAX_DELAY);
     }
 }

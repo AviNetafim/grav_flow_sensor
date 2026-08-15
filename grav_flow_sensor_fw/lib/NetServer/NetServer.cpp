@@ -86,17 +86,20 @@ void NetServer::protocol_task_entry(void *arg){
 
 void NetServer::protocol_task(){
   int retcode;
+  bool prt_sw = false;
+  if *(_regs[CONFIG].point+COM_PRT == 1) prt_sw = true;
+  printf("protocol task print switch = %s\n", prt_sw ? "true" : "false");
   while (1){
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                            // client data is available
-    printf("protocol task woken up\n");
+    if (prt_sw) printf("protocol task woken up\n");
     if (_rx_len > 0) {                                                        
-      if (COM_PRT){
+      if (prt_sw){
          printf("Received %d bytes: ",_rx_len);
          for (size_t i = 0; i < _rx_len; i++)  printf("%02X ", _rx_buf[i]);
          printf("\n");
       }
       retcode = parse_cmd();
-      if (COM_PRT) printf("parse ret code = %d\n",retcode);
+      if (prt_sw) printf("parse ret code = %d\n",retcode);
       if (retcode < 0) {                                                // error in receive message           
           if(_tx_len > 0){                                              // send reponse to error
               send(_client_sock, _tx_buf, _tx_len, 0);            
@@ -106,7 +109,7 @@ void NetServer::protocol_task(){
         _reg_act.func = _rx_buf[FUN];
         _reg_act.address = _rx_buf[ADD];
         xQueueSend(_q_to_main, &_reg_act, portMAX_DELAY);
-        if (COM_PRT) printf("message sent to main\n");
+        if (prt_sw) printf("message sent to main\n");
         xQueueReceive(_q_from_main, &_reg_act, portMAX_DELAY);
         _tx_buf[CODE] = _reg_act.ret_code;
         if (_rx_buf[FUN] == 4) {
@@ -234,7 +237,9 @@ int NetServer::resp_crc(const char* when,int arg_resp_size){
 }
 
 void NetServer::prt_msg(const char* when, uint8_t arg_msg[], int arg_msg_size){
-  if (COM_PRT){
+  bool prt_sw = false;
+  if *(_regs[CONFIG].point+COM_PRT == 1) prt_sw = true;
+  if (prt_sw){
     printf(when);
     for (int i = 0 ; i < arg_msg_size ; i++) printf("%02x,",arg_msg[i]);
     printf("\n");
