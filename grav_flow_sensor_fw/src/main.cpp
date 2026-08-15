@@ -305,27 +305,29 @@ static void weight_test_task(void *arg){
 void show_reg_act(regs_action areg_act){
 
 	// show register states after client before and after ommand received, add configuration parameter to show registers (!)
-	int i;
-	printf("\nfunction = %d, address: = %d \n", areg_act.func,areg_act.address);	 // decoded required function and address
-	printf(" -- mode :"); printf("%04x \n", areg_act.mode[0]);
-	printf(" -- target weight : %04x \n", areg_act.target_weight[0]); 
-	printf(" -- test:"); printf("%04x \n", areg_act.test[0]);
-	printf(" -- vol test stat:");
-    for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.vol_stat[i]);
-    printf("\n");     
-    printf(" -- weight test stat:");
-    for (i = 0 ; i < 3 ; i ++)	printf(" %04x", areg_act.weight_stat[i]);
-    printf("\n");     
-	printf(" -- samples:");
-	for (i = 0 ; i < REG_SAMPLES ; i ++) printf(" %04x", areg_act.samples[i]);
-	printf("\n");     
-	printf(" -- actuator:");
-    for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.actuator[i]);
-    printf("\n");     
-    printf(" -- actuate:"); printf("%04x \n", areg_act.actuate[0]);
-    printf(" -- config:");
-    for (i = 0; i < 10; i++) printf(" %04x", areg_act.config[i]);
-    printf("\n");
+    if (areg_act.config[9] == 1):
+        int i;
+        printf("\nfunction = %d, address: = %d \n", areg_act.func,areg_act.address);	 // decoded required function and address
+        printf(" -- mode :"); printf("%04x \n", areg_act.mode[0]);
+        printf(" -- target weight : %04x \n", areg_act.target_weight[0]); 
+        printf(" -- test:"); printf("%04x \n", areg_act.test[0]);
+        printf(" -- vol test stat:");
+        for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.vol_stat[i]);
+        printf("\n");     
+        printf(" -- weight test stat:");
+        for (i = 0 ; i < 3 ; i ++)	printf(" %04x", areg_act.weight_stat[i]);
+        printf("\n");     
+        printf(" -- samples:");
+        for (i = 0 ; i < REG_SAMPLES ; i ++) printf(" %04x", areg_act.samples[i]);
+        printf("\n");     
+        printf(" -- actuator:");
+        for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.actuator[i]);
+        printf("\n");     
+        printf(" -- actuate:"); printf("%04x \n", areg_act.actuate[0]);
+        printf(" -- config:");
+        for (i = 0; i < 10; i++) printf(" %04x", areg_act.config[i]);
+        printf("\n");
+    }
 }
 
 void reg_action(regs_action &areg_act)
