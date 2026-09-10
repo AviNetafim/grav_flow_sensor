@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import shutil
+from pathlib import Path
+
 
 a = Analysis(
     ['flow_sensor_gui.py'],
@@ -22,7 +25,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='flow_sensor',
+    name='flow_sensor_tb',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,4 +38,9 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+shutil.copy2(
+    Path(SPECPATH) / 'flow_sensor_config.json',
+    Path(DISTPATH) / 'flow_sensor_config.json',
 )

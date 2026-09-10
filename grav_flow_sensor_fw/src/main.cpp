@@ -19,7 +19,7 @@
 static const char *SER_MAIN = "SER_MAIN";
 static const char *TAG = "MAIN";
 
-static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 1000;
+static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 5000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
 static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 1000000;                              // TEMP DEBUG: print weight every 1 s
 

@@ -3,6 +3,7 @@
 import csv
 import json
 import math
+import sys
 import tkinter as tk
 import tkinter.font as tkfont
 import time
@@ -19,7 +20,8 @@ REG_SAMPLES = 32
 SAMPLES_REGISTER_ADDRESS = 5                                    
 SAMPLES_POINTER_ADDRESS = 6
 CONFIG_REGISTER_ADDRESS = 9
-CONFIG_FILE = Path(__file__).with_name("flow_sensor_config.json")
+APPLICATION_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+CONFIG_FILE = APPLICATION_DIR / "flow_sensor_config.json"
 GUI_TIMEOUT_MARGIN_DS = 20
 
 

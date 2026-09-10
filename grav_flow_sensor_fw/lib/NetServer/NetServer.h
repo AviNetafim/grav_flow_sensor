@@ -28,7 +28,7 @@
 #define CONFIG 9                                                        // config register        
 #define COM_PRT 6                                                       // config register com_prt switch                                      
 
-static constexpr uint8_t REG_MAP_SIZE = 10;                             // number of registers
+static constexpr uint8_t REG_MAP_SIZE = 11;                             // number of registers
 static constexpr uint8_t REG_SAMPLES = 32;                              // weight samples size 
 
 #define myRTU 0x01                                                      // RTU ID
@@ -59,6 +59,7 @@ struct regs_action {
     uint16_t actuator[2] = {0x0a,0x0b};                                 // actuator direction selection                     
     uint16_t actuate[1] = {0x14};                                       // actuate selected actuator and dier 
     uint16_t config[10] = {200, 600, 900, 100, 12060, 0xEF57, 0, 0, 0, 0}; // timeouts, calibration, flags, reserved
+    uint16_t weight_slope[3];                                           // sotres weight test slope calculation results
     uint8_t  ret_code;
 };
 
@@ -98,7 +99,8 @@ class NetServer{
             {1,&_reg_act.pointer[0]},
             {2,&_reg_act.actuator[0]},
             {1,&_reg_act.actuate[0]},
-            {10,&_reg_act.config[0]}
+            {10,&_reg_act.config[0]},
+            {3,&_reg_act.weight_slope[0]}
         };
 };
 
