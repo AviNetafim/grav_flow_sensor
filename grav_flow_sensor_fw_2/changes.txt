@@ -1,0 +1,225 @@
+Proposed changes below. No files have been changed.
+The task samples every 100 ms, so 360 × slope gives mL/hour, assuming water density of 1 g/mL. The equivalent mass flow is 360000 × slope mg/hour.
+Assumptions for approval:
+- STDEV_SIZE = 25; you haven’t specified its value.
+- cnt increments for each valid weight reading, starting at 1.
+- Deviations are collected once the flow buffer contains 25 values.
+- Stable flow stops the calculation; the weight test continues until target or timeout.
+- Target/timeout publishes the available averages, even if stability was not reached.
+- Use the existing spelling weight_slope.
+1. Add src/WeightFlowStats.h
+A separate header-only class avoids build configuration changes.
+
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+
+class WeightFlowStats {
+public:
+    static constexpr int32_t MIN_WGT = 50;
+    static constexpr int64_t STDEV_MIN = 8;
+    static constexpr size_t AVG_SIZE = 25;
+    static constexpr size_t STDEV_SIZE = 25;
+
+    enum class State : uint8_t {
+        waiting,
+        running,
+        stable,
+        target_reached,
+        timed_out
+    };
+
+    struct Result {
+        State state;
+        int64_t avg_flow;
+        int64_t flow_dev_avg;
+        uint32_t cnt;
+    };
+
+    bool should_start(int32_t weight_10mg) const {
+        return state_ == State::waiting && weight_10mg > MIN_WGT;
+    }
+
+    void start(int32_t weight_10mg) {
+        *this = WeightFlowStats{};
+        state_ = State::running;
+        calculate(weight_10mg);  // First reading has cnt = 1.
+    }
+
+    void calculate(int32_t weight_10mg) {
+        if (state_ != State::running) {
+            return;
+        }
+
+        const int64_t x = ++cnt_;
+        const int64_t y = weight_10mg;
+
+        sum_x_ += x;
+        sum_y_ += y;
+        sum_xy_ += x * y;
+        sum_xx_ += x * x;
+
+        // One point cannot define a regression slope.
+        if (cnt_ < 2) {
+            return;
+        }
+
+        const int64_t numerator =
+            x * sum_xy_ - sum_x_ * sum_y_;
+        const int64_t denominator =
+            x * sum_xx_ - sum_x_ * sum_x_;
+
+        // Multiply before division to preserve fractional slope.
+        const int64_t ml_hour = (360 * numerator) / denominator;
+
+        push(flow_, flow_pos_, flow_count_, flow_sum_, ml_hour);
+        avg_flow_ = flow_sum_ / static_cast<int64_t>(flow_count_);
+
+        if (flow_count_ != AVG_SIZE) {
+            return;
+        }
+
+        const int64_t difference = ml_hour - avg_flow_;
+        const int64_t flow_dev =
+            10 * (difference < 0 ? -difference : difference);
+
+        push(deviation_, deviation_pos_, deviation_count_,
+             deviation_sum_, flow_dev);
+
+        flow_dev_avg_ =
+            deviation_sum_ / static_cast<int64_t>(deviation_count_);
+
+        if (deviation_count_ == STDEV_SIZE &&
+            flow_dev_avg_ < STDEV_MIN) {
+            state_ = State::stable;
+        }
+    }
+
+    void stop(bool target_reached, bool timed_out) {
+        if (state_ != State::waiting && state_ != State::running) {
+            return;
+        }
+
+        if (target_reached) {
+            state_ = State::target_reached;
+        } else if (timed_out) {
+            state_ = State::timed_out;
+        }
+    }
+
+    bool finished() const {
+        return state_ != State::waiting && state_ != State::running;
+    }
+
+    Result result() const {
+        return {state_, avg_flow_, flow_dev_avg_, cnt_};
+    }
+
+private:
+    template <size_t N>
+    static void push(std::array<int64_t, N>& buffer,
+                     size_t& position, size_t& count,
+                     int64_t& sum, int64_t value) {
+        if (count == N) {
+            sum -= buffer[position];
+        } else {
+            ++count;
+        }
+
+        buffer[position] = value;
+        sum += value;
+        position = (position + 1) % N;
+    }
+
+    State state_ = State::waiting;
+    uint32_t cnt_ = 0;
+
+    int64_t sum_x_ = 0;
+    int64_t sum_y_ = 0;
+    int64_t sum_xy_ = 0;
+    int64_t sum_xx_ = 0;
+
+    std::array<int64_t, AVG_SIZE> flow_{};
+    size_t flow_pos_ = 0;
+    size_t flow_count_ = 0;
+    int64_t flow_sum_ = 0;
+    int64_t avg_flow_ = 0;
+
+    std::array<int64_t, STDEV_SIZE> deviation_{};
+    size_t deviation_pos_ = 0;
+    size_t deviation_count_ = 0;
+    int64_t deviation_sum_ = 0;
+    int64_t flow_dev_avg_ = 0;
+};
+
+
+2. Integrate into src/main.cpp
+Include the class and add result storage to WeightTestData:	
+	#include "WeightFlowStats.h"	
+	// Append inside WeightTestData:
+	uint16_t weight_slope[3] = {0, 0, 0};
+
+Create a fresh calculator before each weight-test sampling loop:
+	WeightFlowStats flow_stats;
+	bool flow_result_saved = false;
+	
+nside if (sample_ready), after calculating weight_10mg:
+if (flow_stats.should_start(weight_10mg)) {
+    flow_stats.start(weight_10mg);
+
+    if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
+        memset(weight_test_data.weight_slope, 0,
+               sizeof(weight_test_data.weight_slope));
+        xSemaphoreGive(weight_test_mutex);
+    }
+} else {
+    flow_stats.calculate(weight_10mg);
+}
+
+
+Immediately after calculating timed_out, before the existing test-stop block:
+
+flow_stats.stop(target_reached, timed_out);
+
+if (flow_stats.finished() && !flow_result_saved) {
+    const auto result = flow_stats.result();
+
+    // Existing protocol registers are unsigned 16-bit values.
+    const auto to_register = [](int64_t value) -> uint16_t {
+        return static_cast<uint16_t>(
+            std::max<int64_t>(0, std::min<int64_t>(value, UINT16_MAX)));
+    };
+
+    if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
+        weight_test_data.weight_slope[0] = to_register(result.avg_flow);
+        weight_test_data.weight_slope[1] = to_register(result.flow_dev_avg);
+        weight_test_data.weight_slope[2] = to_register(result.cnt);
+        xSemaphoreGive(weight_test_mutex);
+        flow_result_saved = true;
+    }
+}
+
+Also clear weight_test_data.weight_slope when accepting a new weight-test command, alongside the existing sample-buffer reset. 
+This prevents old results appearing while waiting for the start threshold.
+
+3. Expose results through the existing register
+The register already exists at address 10, but reg_action() currently has no read handler for it. Add:
+
+case 50:  // Function 4, address 10: read weight_slope
+    if (xSemaphoreTake(weight_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+        memcpy(areg_act.weight_slope, weight_test_data.weight_slope,
+               sizeof(areg_act.weight_slope));
+        xSemaphoreGive(weight_test_mutex);
+    } else {
+        areg_act.ret_code = 1;
+    }
+    break;
+
+Initialize the existing protocol field in NetServer.h
+
+uint16_t weight_slope[3] = {0, 0, 0};
+
+The calculation uses integer arithmetic throughout. Its fixed 360 conversion assumes valid readings remain 100 ms apart;
+missed readings would affect the flow estimate.

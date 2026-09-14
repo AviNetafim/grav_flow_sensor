@@ -64,3 +64,6 @@ gravimetric flow sensor  application user guide
 	test bench load cell clibration:
 		cal_offset = -4265
 		cal_div = 12061
+	devevelopment load cell calibration, installed on test bench:
+		cal_offset = -1970
+		cal_div = 14171

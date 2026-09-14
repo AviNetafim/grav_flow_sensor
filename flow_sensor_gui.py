@@ -193,6 +193,9 @@ class FlowSensorGUI:
             volume_0 = float(config["volume_0"])
             volume = float(config["volume"])
             stable_time = int(config["stable_time"])
+            timeouts = [int(config[name]) for name in ("vol_timeout_low", "vol_timeout_high", "weight_timeout")]
+            if any(value < 0 or value > 65535 for value in timeouts):
+                raise ValueError("timeouts must fit uint16")
             cal_div = int(config["cal_div"])
             cal_offset = int(config["cal_offset"])
             samples_file = str(config["samples_file"]).strip()
@@ -210,20 +213,7 @@ class FlowSensorGUI:
             return
 
         self.config = config
-        static_values = [
-            stable_time,
-            cal_div,
-            cal_offset & 0xFFFF,
-            *flags,
-        ]
-        error_code = self.tc.write(
-            rtu=1,
-            address=CONFIG_REGISTER_ADDRESS,
-            index=3,
-            size=len(static_values),
-            payload=static_values,
-        )
-        if error_code != 0:
+        if not self._update_controller_configuration():
             self.error_message.set("Configuration loaded, but controller update failed.")
             return
         self.error_message.set("")
@@ -253,7 +243,7 @@ class FlowSensorGUI:
         if min_flow <= 0:
             self.error_message.set("Flow range min must be greater than 0.")
             return None
-        timeout = self._timeout_ds(target, min_flow)
+        timeout = int(self.config["weight_timeout" if is_weight else "vol_timeout_high"])
         if timeout > 65535:
             self.error_message.set("Calculated timeout exceeds the controller limit.")
             return None
@@ -263,20 +253,19 @@ class FlowSensorGUI:
 
     def _build_controller_config(self) -> list[int] | None:
         try:
-            min_flow = float(self.flow_range_min.get())
-            weight_text = self.weight_target.get().strip()
-            weight = float(weight_text) if weight_text else 0.0
-            if min_flow <= 0 or weight < 0:
-                raise ValueError("flow range min must be positive")
+            cal_offset = int(self.config["cal_offset"])
+            if not -32768 <= cal_offset <= 32767:
+                raise ValueError("cal_offset must fit int16")
             values = [
-                self._timeout_ds(float(self.config["volume_0"]), min_flow),
-                self._timeout_ds(float(self.config["volume"]), min_flow),
-                self._timeout_ds(weight, min_flow) if weight else 0,
+                int(self.config["vol_timeout_low"]),
+                int(self.config["vol_timeout_high"]),
+                int(self.config["weight_timeout"]),
                 int(self.config["stable_time"]),
                 int(self.config["cal_div"]),
-                int(self.config["cal_offset"]) & 0xFFFF,
-                int(self.config["com_prt"]),
-                int(self.config["show_sample"]),
+                cal_offset & 0xFFFF,  # Signed int16 encoded as a register word.
+                0,
+                0,
+                0,
                 int(self.config["show_regs"]),
             ]
             if any(value < 0 or value > 65535 for value in values):
@@ -287,12 +276,12 @@ class FlowSensorGUI:
         return values
 
     def _update_controller_configuration(self) -> bool:
-        """Write the nine active words of the controller configuration register."""
+        """Write all ten words of the controller configuration register."""
         values = self._build_controller_config()
         if values is None:
             return False
         error_code = self.tc.write(
-            rtu=1, address=CONFIG_REGISTER_ADDRESS, index=0, size=9, payload=values
+            rtu=1, address=CONFIG_REGISTER_ADDRESS, index=0, size=len(values), payload=values
         )
         if error_code != 0:
             self.error_message.set("Error while downloading controller configuration.")
