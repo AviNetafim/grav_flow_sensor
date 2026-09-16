@@ -198,10 +198,11 @@ class FlowSensorGUI:
                 raise ValueError("timeouts must fit uint16")
             cal_div = int(config["cal_div"])
             cal_offset = int(config["cal_offset"])
+            max_flow = float(config["max_flow"])
             samples_file = str(config["samples_file"]).strip()
             flags = [int(config[name]) for name in ("com_prt", "show_sample", "show_regs")]
-            if volume_0 <= 0 or volume <= 0 or not 0 <= stable_time <= 65535:
-                raise ValueError("volumes must be positive and stable_time must fit uint16")
+            if volume_0 <= 0 or volume <= 0 or max_flow <= 0 or not 0 <= stable_time <= 65535:
+                raise ValueError("volumes and max_flow must be positive and stable_time must fit uint16")
             if not 0 < cal_div <= 65535 or not -32768 <= cal_offset <= 32767:
                 raise ValueError("cal_div or cal_offset exceeds its register range")
             if not samples_file or Path(samples_file).suffix or Path(samples_file).name != samples_file:
@@ -263,7 +264,7 @@ class FlowSensorGUI:
                 int(self.config["stable_time"]),
                 int(self.config["cal_div"]),
                 cal_offset & 0xFFFF,  # Signed int16 encoded as a register word.
-                0,
+                int(float(self.config["max_flow"]) / 3600 / 10 * 100),
                 0,
                 0,
                 int(self.config["show_regs"]),
@@ -526,7 +527,7 @@ class FlowSensorGUI:
 
         try:
             samples_path = CONFIG_FILE.with_name(f"{self.config['samples_file']}.csv")
-            with samples_path.open("a", newline="", encoding="utf-8") as csv_file:
+            with samples_path.open("w", newline="", encoding="utf-8") as csv_file:
                 csv.writer(csv_file).writerows((sample,) for sample in samples)
         except OSError as exc:
             self.error_message.set(f"Error while writing samples CSV: {exc}")

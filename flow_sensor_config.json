@@ -4,11 +4,12 @@
   "samples_file": "weight_samples",
   "vol_timeout_low": 200,
   "vol_timeout_high": 600,
-  "weight_timeout": 900,
+  "weight_timeout": 1800,
   "stable_time": 100,
-  "cal_div": 14166,
-  "cal_offset": 381,
+  "cal_div": 14171,
+  "cal_offset": -1970,
+  "max_flow": 10000,
   "com_prt": 0,
   "show_sample": 0,
-  "show_regs": 0
+  "show_regs": 1
 }
