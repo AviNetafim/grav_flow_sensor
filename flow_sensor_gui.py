@@ -44,13 +44,13 @@ class FlowSensorGUI:
 
         self.test_method = tk.IntVar(value=0)
         self.weight_target = tk.StringVar()
-        self.flow_range_min = tk.StringVar()
         self.config: dict[str, object] = {}
         self.controller_config: list[int] = []
 
         self.test_time = tk.StringVar(value="--")
         self.test_progress_time = tk.StringVar(value="--")
         self.flow = tk.StringVar(value="--")
+        self.slope = tk.StringVar(value="--")
         self.raw_weight = tk.StringVar(value="--")
         self.error_message = tk.StringVar()
         self.weight_count = 0
@@ -117,7 +117,7 @@ class FlowSensorGUI:
         inputs = ttk.LabelFrame(container, text="Test settings", padding=6)
         inputs.grid(row=1, column=0, columnspan=4, sticky="nsew", pady=(0, 8))
         inputs.columnconfigure(3, weight=1)
-        for row in range(2):
+        for row in range(1):
             inputs.rowconfigure(row, weight=1)
 
         ttk.Label(inputs, text="Weight target:").grid(row=0, column=0, sticky="w", pady=4)
@@ -125,25 +125,21 @@ class FlowSensorGUI:
         self.weight_entry.grid(row=0, column=1, padx=8, pady=4, sticky="w")
         ttk.Label(inputs, text="g (0-80)").grid(row=0, column=2, sticky="w")
 
-        ttk.Label(inputs, text="Flow range min:").grid(row=1, column=0, sticky="w", pady=4)
-        self.flow_min_entry = ttk.Entry(inputs, textvariable=self.flow_range_min, width=16)
-        self.flow_min_entry.grid(row=1, column=1, padx=8, pady=4, sticky="w")
-        ttk.Label(inputs, text="l/h (>0)").grid(row=1, column=2, sticky="w")
-
         results = ttk.LabelFrame(container, text="Test results", padding=6)
         results.grid(row=2, column=0, columnspan=4, sticky="nsew", pady=(0, 8))
         results.columnconfigure(3, weight=1)
-        for row in range(5):
+        for row in range(6):
             results.rowconfigure(row, weight=1)
 
         self._add_display_row(results, 0, "Test time:", self.test_time, "ds")
         self._add_display_row(
             results, 1, "Test progress time:", self.test_progress_time, "s"
         )
-        self._add_display_row(results, 2, "Flow:", self.flow, "")
-        self._add_display_row(results, 3, "Raw weight:", self.raw_weight, "")
+        self._add_display_row(results, 2, "Flow:", self.flow, "mg/h")
+        self._add_display_row(results, 3, "slope", self.slope, "mg/h")
+        self._add_display_row(results, 4, "Raw weight:", self.raw_weight, "")
         self._add_display_row(
-            results, 4, "Error message:", self.error_message, "", width=32
+            results, 5, "Error message:", self.error_message, "", width=32
         )
 
         buttons = ttk.Frame(container)
@@ -176,8 +172,6 @@ class FlowSensorGUI:
     def _update_method_fields(self) -> None:
         weight_selected = self.test_method.get() == 0
         self.weight_entry.configure(state="normal" if weight_selected else "disabled")
-        range_selected = self.test_method.get() in (0, 1)
-        self.flow_min_entry.configure(state="normal" if range_selected else "disabled")
         self.error_message.set("")
 
     @staticmethod
@@ -232,17 +226,8 @@ class FlowSensorGUI:
             self.error_message.set(f"{target_name} must be a number.")
             return None
 
-        try:
-            min_flow = float(self.flow_range_min.get())
-        except ValueError:
-            self.error_message.set("Flow range min must be a number.")
-            return None
-
         if not 0 < target < target_limit:
             self.error_message.set(f"{target_name} must be greater than 0 and less than {target_limit:g}.")
-            return None
-        if min_flow <= 0:
-            self.error_message.set("Flow range min must be greater than 0.")
             return None
         timeout = int(self.config["weight_timeout" if is_weight else "vol_timeout_high"])
         if timeout > 65535:
@@ -311,6 +296,7 @@ class FlowSensorGUI:
         self.test_time.set("--")
         self.test_progress_time.set("0.0")
         self.flow.set("--")
+        self.slope.set("--")
         self.raw_weight.set("--")
         self.error_message.set("")
         error_code = self.tc.write(                                                 # set test mode on controller        
@@ -418,9 +404,9 @@ class FlowSensorGUI:
             return
 
         error_code, payload = self.tc.read(
-            rtu=1, address=4, index=0, size=3
+            rtu=1, address=4, index=0, size=4
         )
-        if error_code != 0 or len(payload) < 3:
+        if error_code != 0 or len(payload) < 4:
             self._test_active = False
             self.error_message.set("Error while reading weight test state.")
             return
@@ -439,6 +425,8 @@ class FlowSensorGUI:
         self._test_active = False
         time_to_fill = payload[1]
         self.weight_count = payload[2]
+        # Signed 10 mg per 100 ms sample -> mg/h.
+        self.slope.set(str(self._signed_word(payload[3]) * 360_000))
         if self.weight_count > 0:
             self.get_samples_button.configure(state="normal")
         if time_to_fill <= 0 or time_to_fill >= timeout:
@@ -447,7 +435,7 @@ class FlowSensorGUI:
             return
 
         self.test_time.set(str(time_to_fill))
-        self.flow.set(f"{weight / time_to_fill * 36:.3f}")
+        self.flow.set(f"{weight / time_to_fill * 36_000_000:.3f}")
         self.error_message.set("")
 
     def _poll_volume_test(
@@ -491,8 +479,14 @@ class FlowSensorGUI:
             self.error_message.set("volume test timeout")
             return
 
-        self.flow.set(f"{volume / time_to_fill * 36:.3f}")
+        # Water density assumption: 1 g/mL; volume is in mL.
+        self.flow.set(f"{volume / time_to_fill * 36_000_000:.3f}")
         self.error_message.set("")
+
+    @staticmethod
+    def _signed_word(value: int) -> int:
+        """Decode a two's-complement int16 register word."""
+        return value - 65536 if value >= 32768 else value
 
     def get_samples(self) -> None:
         """Download the completed weight-test samples and append them to CSV."""
@@ -523,7 +517,7 @@ class FlowSensorGUI:
                 return
 
             remaining = self.weight_count - pointer
-            samples.extend(payload[: min(REG_SAMPLES, remaining)])
+            samples.extend(self._signed_word(value) for value in payload[: min(REG_SAMPLES, remaining)])
 
         try:
             samples_path = CONFIG_FILE.with_name(f"{self.config['samples_file']}.csv")

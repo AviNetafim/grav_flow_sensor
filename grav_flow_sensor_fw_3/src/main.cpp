@@ -22,7 +22,7 @@ static const char *TAG = "MAIN";
 
 static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 5000;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
-static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 1000000;                              // TEMP DEBUG: print weight every 1 s
+// static constexpr int64_t WEIGHT_PRINT_PERIOD_US = 1000000;                              // TEMP DEBUG: print weight every 1 s
 
 static constexpr int64_t CAL_MUL = 100;
 
@@ -49,6 +49,7 @@ struct WeightTestData {
     uint16_t cal_div;
     int16_t cal_offset;
     uint16_t max_weight_rise_10mg;
+    int16_t slope;                                                     // final regression slope in 10 mg/sample
     size_t sample_count;
     int32_t samples[WEIGHT_TEST_MAX_SAMPLES];
 };
@@ -73,7 +74,7 @@ static TaskHandle_t weight_test_task_handle;
 static SemaphoreHandle_t volume_test_mutex;
 static TaskHandle_t volume_test_task_handle;
 static WeightTestData weight_test_data = {
-    TestState::stop, 0, 0, 0, 12060, -4265, 0, 0, {0}
+    TestState::stop, 0, 0, 0, 12060, -4265, 0, 0, 0, {0}
 };
 static VolumeTestData volume_test_data = {
     TestState::stop, 0, 0, 0, 0
@@ -231,7 +232,7 @@ static void weight_test_task(void *arg){
         const int64_t target_delta_raw = target_delta_raw_abs - target_raw_0;
         ESP_LOGI(TAG, "target delta = %" PRId64 "" , target_delta_raw);
             const int64_t started_us = esp_timer_get_time();                // start_us (since timer was initialized)
-        int64_t last_weight_print_us = started_us;                          // TEMP DEBUG
+        // int64_t last_weight_print_us = started_us;                          // TEMP DEBUG
         TickType_t next_wake = xTaskGetTickCount();                         // rtos ticks since task was scheduled
 
         ESP_LOGI(TAG, "Weight test started: target = %u x 10 mg, timeout=%u ds",
@@ -276,18 +277,18 @@ static void weight_test_task(void *arg){
                 weight_10mg = weight_10mg_temp;
 
                 // TEMP DEBUG: report the current sensor reading once per second.
-                const int64_t now_us = esp_timer_get_time();
-                if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
-                    ESP_LOGI(TAG,
-                             "Weight sensor: raw=%ld, weight=%.2f g, "
-                             "tare raw=%ld, target=%.2f g, target raw=%ld",
-                             static_cast<long>(adc_sample.raw),
-                             static_cast<double>(weight_10mg) / 100.0,
-                             static_cast<long>(tare_raw),
-                             static_cast<double>(target_weight_10mg) / 100.0,
-                             static_cast<long>(target_delta_raw));
-                    last_weight_print_us = now_us;
-                }
+                // const int64_t now_us = esp_timer_get_time();
+                // if (now_us - last_weight_print_us >= WEIGHT_PRINT_PERIOD_US) {
+                //     ESP_LOGI(TAG,
+                //              "Weight sensor: raw=%ld, weight=%.2f g, "
+                //              "tare raw=%ld, target=%.2f g, target raw=%ld",
+                //              static_cast<long>(adc_sample.raw),
+                //              static_cast<double>(weight_10mg) / 100.0,
+                //              static_cast<long>(tare_raw),
+                //              static_cast<double>(target_weight_10mg) / 100.0,
+                //              static_cast<long>(target_delta_raw));
+                //     last_weight_print_us = now_us;
+                // }
 
                 if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
                     if (weight_test_data.sample_count <                                
@@ -307,7 +308,9 @@ static void weight_test_task(void *arg){
             if (target_reached || timed_out) {
                 if (xSemaphoreTake(weight_test_mutex, portMAX_DELAY) == pdTRUE) {
                     weight_test_data.test_state = TestState::stop;       
-                weight_test_data.time2target_ds = elapsed_ds;                       // continuously done above?
+                    weight_test_data.time2target_ds = elapsed_ds;
+                    weight_test_data.slope = static_cast<int16_t>(
+                        std::max<int64_t>(INT16_MIN, std::min<int64_t>(INT16_MAX, flow_stats.slope())));
                     xSemaphoreGive(weight_test_mutex);
                 }
                 ESP_LOGI(TAG, "Weight test stop: %s after %u ds",
@@ -335,10 +338,10 @@ void show_reg_act(regs_action areg_act){
         for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.vol_stat[i]);
         printf("\n");     
         printf(" -- weight test stat:");
-        for (i = 0 ; i < 3 ; i ++)	printf(" %04x", areg_act.weight_stat[i]);
+        for (i = 0 ; i < REG_WEIGHT_STAT ; i ++)	printf(" %04x", areg_act.weight_stat[i]);
         printf("\n");     
         printf(" -- samples:");
-        for (i = 0 ; i < REG_SAMPLES ; i ++) printf(" %04x", areg_act.samples[i]);
+        for (i = 0 ; i < REG_SAMPLES ; i ++) printf(" %04x", static_cast<unsigned int>(static_cast<uint16_t>(areg_act.samples[i])));
         printf("\n");     
         printf(" -- actuator:");
         for (i = 0 ; i < 2 ; i ++)	printf(" %04x", areg_act.actuator[i]);
@@ -383,6 +386,7 @@ void reg_action(regs_action &areg_act)
                             }
                             weight_test_data.test_state = TestState::run;
                             weight_test_data.time2target_ds = 0;
+                            weight_test_data.slope = 0;
                             weight_test_data.target_weight_10mg = areg_act.target_weight[0];
                             weight_test_data.timeout_ds = areg_act.config[2];
                             weight_test_data.cal_div = areg_act.config[4];
@@ -450,6 +454,7 @@ void reg_action(regs_action &areg_act)
                 areg_act.weight_stat[0] = static_cast<uint16_t>(weight_test_data.test_state);
                 areg_act.weight_stat[1] = static_cast<uint16_t>(weight_test_data.time2target_ds);
                 areg_act.weight_stat[2] = static_cast<uint16_t>(weight_test_data.sample_count);
+                areg_act.weight_stat[3] = static_cast<uint16_t>(weight_test_data.slope);
                 xSemaphoreGive(weight_test_mutex);
             } 
             else areg_act.ret_code = 1;
