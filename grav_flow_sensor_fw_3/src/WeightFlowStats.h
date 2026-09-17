@@ -7,6 +7,7 @@
 class WeightFlowStats {
 public:
     static constexpr int32_t MIN_WGT = 50;
+    static constexpr int64_t SLOPE_SCALE = 1000;
     enum class State : uint8_t {
         waiting, running, target_reached, timed_out
     };
@@ -43,10 +44,11 @@ public:
         }
         const int64_t numerator = x * sum_xy_ - sum_x_ * sum_y_;
         const int64_t denominator = x * sum_xx_ - sum_x_ * sum_x_;
-        slope_ = numerator / denominator;
+        slope_ = (SLOPE_SCALE * numerator) / denominator;
         flow_ = (360 * numerator) / denominator;
     }
 
+    // Fixed-point regression slope in 10 ug/ds (1000 units per 10 mg/ds).
     int64_t slope() const {
         return slope_;
     }

@@ -49,7 +49,7 @@ struct WeightTestData {
     uint16_t cal_div;
     int16_t cal_offset;
     uint16_t max_weight_rise_10mg;
-    int16_t slope;                                                     // final regression slope in 10 mg/sample
+    int16_t slope;                                                     // final regression slope in 10 ug/ds
     size_t sample_count;
     int32_t samples[WEIGHT_TEST_MAX_SAMPLES];
 };
@@ -271,7 +271,8 @@ static void weight_test_task(void *arg){
                 if (weight_10mg_temp >= static_cast<int32_t>(target_weight_10mg)) {
                     if (static_cast<int32_t>(target_weight_10mg) - weight_10mg >
                         static_cast<int32_t>(max_weight_rise_10mg)) {
-                        weight_10mg_temp = weight_10mg + static_cast<int32_t>(flow_stats.slope());
+                        weight_10mg_temp = weight_10mg + static_cast<int32_t>(
+                            flow_stats.slope() / WeightFlowStats::SLOPE_SCALE);
                     }
                 }
                 weight_10mg = weight_10mg_temp;

@@ -135,8 +135,8 @@ class FlowSensorGUI:
         self._add_display_row(
             results, 1, "Test progress time:", self.test_progress_time, "s"
         )
-        self._add_display_row(results, 2, "Flow:", self.flow, "mg/h")
-        self._add_display_row(results, 3, "slope", self.slope, "mg/h")
+        self._add_display_row(results, 2, "Flow:", self.flow, "g/h")
+        self._add_display_row(results, 3, "slope", self.slope, "g/h")
         self._add_display_row(results, 4, "Raw weight:", self.raw_weight, "")
         self._add_display_row(
             results, 5, "Error message:", self.error_message, "", width=32
@@ -425,8 +425,8 @@ class FlowSensorGUI:
         self._test_active = False
         time_to_fill = payload[1]
         self.weight_count = payload[2]
-        # Signed 10 mg per 100 ms sample -> mg/h.
-        self.slope.set(str(self._signed_word(payload[3]) * 360_000))
+        # Signed 10 ug/ds -> g/h: 0.00001 g * 36000 ds/h.
+        self.slope.set(f"{self._signed_word(payload[3]) * 0.36:.3f}")
         if self.weight_count > 0:
             self.get_samples_button.configure(state="normal")
         if time_to_fill <= 0 or time_to_fill >= timeout:
@@ -435,7 +435,7 @@ class FlowSensorGUI:
             return
 
         self.test_time.set(str(time_to_fill))
-        self.flow.set(f"{weight / time_to_fill * 36_000_000:.3f}")
+        self.flow.set(f"{weight / time_to_fill * 36_000:.3f}")
         self.error_message.set("")
 
     def _poll_volume_test(
@@ -480,7 +480,7 @@ class FlowSensorGUI:
             return
 
         # Water density assumption: 1 g/mL; volume is in mL.
-        self.flow.set(f"{volume / time_to_fill * 36_000_000:.3f}")
+        self.flow.set(f"{volume / time_to_fill * 36_000:.3f}")
         self.error_message.set("")
 
     @staticmethod
