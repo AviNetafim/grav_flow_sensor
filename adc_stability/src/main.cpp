@@ -242,7 +242,7 @@ void reg_action(regs_action &areg_act)
         break;
 
     default:
-        areg_act.ret_code = 3;
+        areg_act.ret_code = 0;
         break;
     }
 }

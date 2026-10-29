@@ -106,7 +106,9 @@ void NetServer::protocol_task(){
         xQueueSend(_q_to_main, &_reg_act, portMAX_DELAY);
         if (prt_sw) printf("message sent to main\n");
         xQueueReceive(_q_from_main, &_reg_act, portMAX_DELAY);
+        printf("message received from main\n");
         _tx_buf[CODE] = _reg_act.ret_code;
+        printf("_rx_buf[FUN] = %d\n", _rx_buf[FUN]);
         if (_rx_buf[FUN] == 4) {
           for (int i = 0; i < _payload_size ; i++){                        
               _tx_buf[8+i*2] = (uint8_t)(*(_regs[_rx_buf[ADD]].point+_index+i) & 0xff );
@@ -117,7 +119,9 @@ void NetServer::protocol_task(){
         if ((_rx_buf[FUN] == 6)){
           _tx_len = resp_crc("write response: ",8);
         }
+        printf("_tx_len = %d\n", _tx_len);
         if (_tx_len > 0){
+            printf("Sending %d bytes: ",_tx_len);
             send(_client_sock, _tx_buf, _tx_len, 0);
         }
       }
