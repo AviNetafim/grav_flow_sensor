@@ -1,7 +1,10 @@
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -20,10 +23,11 @@ static const char *SER_MAIN = "SER_MAIN";
 static const char *TAG = "MAIN";
 
 static constexpr size_t WEIGHT_TEST_MAX_SAMPLES = 5000;
+static constexpr bool ADC_STABILITY_WIFI_ENABLED = false;
 static constexpr uint32_t WEIGHT_TEST_SAMPLE_PERIOD_MS = 100;                           // 100 ms sample period for weight test task
 // Temporary ADC stability test settings, edited by the programmer.
 static constexpr uint32_t ADC_STABILITY_CYCLES_PER_SAMPLE = 10; // Allowed: 5..30 task cycles.
-static constexpr size_t ADC_STABILITY_ITERATIONS = 200;         // Allowed: 50..2000 recorded samples.
+static constexpr size_t ADC_STABILITY_ITERATIONS = 500;         // Allowed: 50..2000 recorded samples.
 static_assert(ADC_STABILITY_CYCLES_PER_SAMPLE >= 5 &&
               ADC_STABILITY_CYCLES_PER_SAMPLE <= 30, "Sample interval must be 5..30 cycles");
 static_assert(ADC_STABILITY_ITERATIONS >= 50 && ADC_STABILITY_ITERATIONS <= 2000,
@@ -440,6 +444,56 @@ void reg_action(regs_action &areg_act)
     }
 }
 
+static void terminal_task(void *arg) {
+    const int input_fd = static_cast<int>(reinterpret_cast<intptr_t>(arg));
+    char command[64];
+    size_t length = 0;
+    bool overflow = false;
+    ESP_LOGI(TAG, "Wi-Fi %s. Type wt and press Enter to start ADC stability test",
+             ADC_STABILITY_WIFI_ENABLED ? "enabled" : "disabled");
+    while (true) {
+        unsigned char ch;
+        if (read(input_fd, &ch, 1) != 1) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        if (ch == '\r' || ch == '\n') {
+            if (length != 0 || overflow) {
+                putchar('\n');
+                fflush(stdout);
+            }
+            command[length] = '\0';
+            if (!overflow && (strcmp(command, "wt") == 0 ||
+                              strcmp(command, "weight_test_task") == 0)) {
+                regs_action action = {};
+                action.func = 6;
+                action.address = 2;
+                action.mode[0] = static_cast<uint16_t>(TestType::weight);
+                action.test[0] = static_cast<uint16_t>(TestState::run);
+                reg_action(action);
+                ESP_LOGI(TAG, "Weight test start request: result=%u (0=accepted or already running)",
+                         action.ret_code);
+            } else if (length != 0 || overflow) {
+                ESP_LOGI(TAG, "Unknown command. Type wt and press Enter");
+            }
+            length = 0;
+            overflow = false;
+        } else if (ch == '\b' || ch == 127) {
+            if (length > 0) {
+                --length;
+                fputs("\b \b", stdout);
+                fflush(stdout);
+            }
+        } else if (length < sizeof(command) - 1) {
+            command[length++] = static_cast<char>(ch);
+            putchar(ch);
+            fflush(stdout);
+        } else {
+            overflow = true;
+        }
+    }
+}
+
 extern "C" void app_main(void)
 {
     vTaskDelay(pdMS_TO_TICKS(2000));
@@ -471,11 +525,13 @@ extern "C" void app_main(void)
     configASSERT(q_main_to_protocol != nullptr);
     static NetServer ns(q_main_to_protocol, q_protocol_to_main);
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    ns.wifi_init_ap();
-    ns.start_server_task();
-    ns.start_protocol_task();
+    if (ADC_STABILITY_WIFI_ENABLED) {
+        ESP_ERROR_CHECK(esp_netif_init());
+        ESP_ERROR_CHECK(esp_event_loop_create_default());
+        ns.wifi_init_ap();
+        ns.start_server_task();
+        ns.start_protocol_task();
+    }
 
     const esp_err_t err = adc.begin();
     if (err != ESP_OK) {
@@ -491,6 +547,24 @@ extern "C" void app_main(void)
         xTaskCreate(volume_test_task, "volume_test_task", 4096, nullptr, 5,
                     &volume_test_task_handle);
     configASSERT(volume_task_created == pdPASS);
+    const BaseType_t terminal_task_created =
+        xTaskCreate(terminal_task, "terminal_task", 4096,
+                    reinterpret_cast<void *>(static_cast<intptr_t>(fileno(stdin))), 5, nullptr);
+    configASSERT(terminal_task_created == pdPASS);
+
+#if CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG
+    // The secondary console mirrors output, but stdin still reads only UART.
+    // Read the USB VFS separately so either connector accepts commands.
+    const int usb_input_fd = open("/dev/secondary", O_RDONLY | O_NONBLOCK);
+    if (usb_input_fd < 0) {
+        ESP_LOGE(TAG, "Could not open USB serial command input: %s", strerror(errno));
+    } else {
+        const BaseType_t usb_terminal_created =
+            xTaskCreate(terminal_task, "usb_terminal", 4096,
+                        reinterpret_cast<void *>(static_cast<intptr_t>(usb_input_fd)), 5, nullptr);
+        configASSERT(usb_terminal_created == pdPASS);
+    }
+#endif
 
     while (true) {
         xQueueReceive(q_protocol_to_main, &main_reg_act, portMAX_DELAY);
