@@ -1,27 +1,30 @@
-# ADC stability test
+# ADC stability firmware
 
-This PlatformIO project provides a small TCP register interface for investigating
-raw ADS1231 weight noise on the ESP32-C6. It reuses the firmware's NetServer and
-ADS1231 drivers.
+Standalone copy of `grav_flow_sensor_fw_2` with a temporary weight-test task.
 
-The device starts a Wi-Fi access point named `ESP32_AP` with password
-`12345678` and listens for the register protocol on TCP port `502`.
+Edit `src/main.cpp` before building:
 
-## Raw weight test
+- `ADC_STABILITY_CYCLES_PER_SAMPLE`: 5–30 task cycles, default 10.
+- `ADC_STABILITY_ITERATIONS`: 50–2000 recorded samples, default 500.
+- `WEIGHT_TEST_SAMPLE_PERIOD_MS`: task period, inherited as 100 ms.
 
-Use the existing register protocol to configure and start the test:
+Start using the normal weight-mode test command. The task tares once at start,
+polls the ADC every cycle, then prints raw ADC counts and integer `weight_10mg`
+and appends that same weight to the sample buffer every configured number of
+cycles. Each weight unit represents 10 mg. Conversion matches fw_2:
+`(raw - tare_raw) * 100 / cal_div` (integer division).
+A scheduled sample without a fresh ADC reading is retried on subsequent cycles.
 
-- Register 9, element 7: sample period in milliseconds (`100`–`1000`, default
-  `100`).
-- Register 9, element 8: number of samples (`10`–`1000`, default `10`).
-- Register 9, element 9: enable register dumps from `show_reg_act` (`1`).
-- Register 0, element 0: select weight mode (`0`).
-- Register 2, element 0: start the test (`1`, action `0x62`).
+The test stops after the configured number of recorded samples, regardless of
+target weight or timeout. Defaults take approximately 500 seconds after tare.
+The normal status register reports recorded sample count and elapsed deciseconds;
+command `0x45` retrieves samples through the existing pointer/sample registers.
+Flow statistics remain zero in this temporary test. Each new test clears the
+buffer and counters. Existing calibration, networking, and volume mode remain
+available.
 
-Each successful read is printed to the serial terminal as
-`weight_test sample=<index>/<count> raw=<signed ADS1231 value>`.
-Read weight status using action `0x44`: the four words report state, samples
-completed, requested sample count, and period in milliseconds.
+Build: `pio run -d adc_stability`
 
-Build and upload with PlatformIO for the `esp32-c6-devkitm-1` environment. The
-ADS1231 is connected to GPIO17 (SCLK), GPIO16 (DOUT), and GPIO18 (PWDN).
+Upload: `pio run -d adc_stability -t upload`
+
+Monitor: `pio device monitor -d adc_stability`

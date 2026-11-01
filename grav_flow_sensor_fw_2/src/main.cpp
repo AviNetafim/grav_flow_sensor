@@ -393,7 +393,7 @@ void reg_action(regs_action &areg_act)
                                 break;
                             }
                             weight_test_data.test_state = TestState::run;
-                            weight_test_data.time2target_ds = 0;
+                      `       weight_test_data.time2target_ds = 0;
                             weight_test_data.target_weight_10mg = areg_act.target_weight[0];
                             weight_test_data.timeout_ds = areg_act.config[2];
                             weight_test_data.cal_div = areg_act.config[4];
@@ -409,7 +409,8 @@ void reg_action(regs_action &areg_act)
                     break;
                 
                     case TestType::volume:
-                        if (xSemaphoreTake(volume_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+      
+      if (xSemaphoreTake(volume_test_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
                             if (volume_test_data.test_state == TestState::run) {    
                                 xSemaphoreGive(volume_test_mutex);
                                 break;
