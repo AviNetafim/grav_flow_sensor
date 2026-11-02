@@ -23,7 +23,8 @@
 static const char *TAG = "MAIN";
 
 // Test options, edited by the programmer before building.
-static constexpr bool WIFI_ACTIVE = true;                                   // true: AP + TCP server running, false: no wifi
+static constexpr bool WIFI_ACTIVE = false;                                  // true: AP + TCP server running, false: no wifi
+static constexpr bool WIFI_OFF_DURING_TEST = false;                         // true: wifi stops for the weight test, needs WIFI_ACTIVE
 static constexpr bool ADC_READ_CRITICAL = true;                             // true: read ADC inside portENTER_CRITICAL
 static constexpr uint32_t WEIGHT_TEST_CYCLE_MS = 10;                        // ADC poll period, 100 = reference project behaviour
 static constexpr size_t WEIGHT_TEST_NUM_SAMPLES = 1000;                     // samples per test, one every approx 100 ms
@@ -31,6 +32,8 @@ static constexpr size_t WEIGHT_TEST_NUM_SAMPLES = 1000;                     // s
 static constexpr size_t PRINT_MAX_SAMPLES = 200;                            // max samples printed by one print command
 static constexpr size_t ACTIVITY_PRINT_SAMPLES = 10;                        // show task activity every 10 samples (approx 1 s)
 static constexpr int64_t ADC_NOT_READY_TIMEOUT_US = 2000000;                // abort test if no conversion completes for 2 s
+static constexpr uint32_t WIFI_SWITCH_TIMEOUT_MS = 5000;                    // abort test if wifi does not stop within 5 s
+static constexpr bool WIFI_SWITCHED_BY_TEST = WIFI_ACTIVE && WIFI_OFF_DURING_TEST;
 static constexpr int64_t CAL_MUL = 100;
 static constexpr int64_t CAL_DIV = 12060;                                   // reference project default calibration divisor
 
@@ -74,10 +77,22 @@ static void stop_weight_test() {
 }
 
 static void weight_test_task(void *arg) {
-    (void)arg;
+    NetServer *ns = static_cast<NetServer *>(arg);
 
     while (true) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                            // wait for wt command
+
+        const char *abort_reason = nullptr;
+        if (WIFI_SWITCHED_BY_TEST) {
+            ESP_LOGI(TAG, "Stopping wifi");
+            const esp_err_t wifi_err = ns->wifi_off(pdMS_TO_TICKS(WIFI_SWITCH_TIMEOUT_MS));
+            if (wifi_err != ESP_OK) {
+                ESP_LOGE(TAG, "Wifi stop failed: %s", esp_err_to_name(wifi_err));
+                abort_reason = "wifi did not stop";
+            } else {
+                ESP_LOGI(TAG, "Wifi stopped");
+            }
+        }
 
         ESP_LOGI(TAG, "Weight test started: samples=%u, poll cycle=%lu ms",
                  static_cast<unsigned>(WEIGHT_TEST_NUM_SAMPLES),
@@ -90,9 +105,8 @@ static void weight_test_task(void *arg) {
         size_t count = 0;
         int32_t raw_min = INT32_MAX;
         int32_t raw_max = INT32_MIN;
-        const char *abort_reason = nullptr;
 
-        while (count < WEIGHT_TEST_NUM_SAMPLES) {
+        while (abort_reason == nullptr && count < WEIGHT_TEST_NUM_SAMPLES) {
             vTaskDelayUntil(&next_wake, pdMS_TO_TICKS(WEIGHT_TEST_CYCLE_MS));
 
             ADS1231::Sample adc_sample;
@@ -145,13 +159,21 @@ static void weight_test_task(void *arg) {
                      static_cast<long>(raw_min), static_cast<long>(raw_max),
                      static_cast<long>(raw_max - raw_min));
         }
+        if (WIFI_SWITCHED_BY_TEST) {
+            const esp_err_t wifi_err = ns->wifi_on(pdMS_TO_TICKS(WIFI_SWITCH_TIMEOUT_MS));
+            if (wifi_err != ESP_OK) {
+                ESP_LOGE(TAG, "Wifi start failed: %s", esp_err_to_name(wifi_err));
+            } else {
+                ESP_LOGI(TAG, "Wifi started");
+            }
+        }
         ESP_LOGI(TAG, "Type print <index> to show samples");
     }
 }
 
 static void show_options() {
     printf("wifi=%s, adc critical section=%s, poll cycle=%lu ms, samples=%u\n",
-           WIFI_ACTIVE ? "active" : "inactive",
+           WIFI_SWITCHED_BY_TEST ? "off during test" : WIFI_ACTIVE ? "active" : "inactive",
            ADC_READ_CRITICAL ? "on" : "off",
            static_cast<unsigned long>(WEIGHT_TEST_CYCLE_MS),
            static_cast<unsigned>(WEIGHT_TEST_NUM_SAMPLES));
@@ -326,7 +348,7 @@ extern "C" void app_main(void)
     }
 
     const BaseType_t task_created =
-        xTaskCreate(weight_test_task, "weight_test_task", 4096, nullptr, 5,
+        xTaskCreate(weight_test_task, "weight_test_task", 4096, &ns, 5,
                     &weight_test_task_handle);
     configASSERT(task_created == pdPASS);
 

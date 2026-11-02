@@ -15,12 +15,14 @@
 #ifndef NETSERVER_h
 #define NETSERVER_h
 
+#include "esp_event.h"
 #include "esp_wifi.h"
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "esp_rom_crc.h"
 #include "esp_log.h"
 #include <string>
+#include "freertos/event_groups.h"
 #include "freertos/queue.h"
 
 #define TCP_PORT 502
@@ -71,7 +73,11 @@ class NetServer{
         void wifi_init_ap();
         void start_server_task();
         void start_protocol_task();
+        esp_err_t wifi_off(TickType_t timeout);                         // disconnect client, stop AP, wait until stopped
+        esp_err_t wifi_on(TickType_t timeout);                          // start AP, wait until started
     private:
+        static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data);
+        EventGroupHandle_t _wifi_events = nullptr;                      // AP started / stopped events
         static void server_task_entry(void *arg);                       // wrapper for tcp server task
         void tcp_server_task();
         static void protocol_task_entry(void *arg);                     // wrapper for protocol task

@@ -2,6 +2,10 @@
 
 const char *TAG = "TCP";
 
+static constexpr EventBits_t AP_STARTED_BIT = BIT0;
+static constexpr EventBits_t AP_STOPPED_BIT = BIT1;
+static constexpr uint32_t CLIENT_FIN_FLUSH_MS = 100;                    // lets the TCP FIN go out before the radio stops
+
 NetServer::NetServer (QueueHandle_t rxQueue, QueueHandle_t txQueue){
   _q_from_main = rxQueue;
   _q_to_main = txQueue;
@@ -11,6 +15,11 @@ void NetServer::wifi_init_ap(){
     esp_netif_create_default_wifi_ap();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
+    _wifi_events = xEventGroupCreate();
+    configASSERT(_wifi_events != nullptr);
+    // registered after the default netif handlers, so the netif has already followed the AP when wifi_off/wifi_on wake
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_START, wifi_event_handler, this);
+    esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STOP, wifi_event_handler, this);
     wifi_config_t ap_config = {};
 
     strcpy((char*)ap_config.ap.ssid, "ESP32_AP");
@@ -24,6 +33,33 @@ void NetServer::wifi_init_ap(){
     esp_wifi_set_config(WIFI_IF_AP, &ap_config);
     esp_wifi_start();
     ESP_LOGI(TAG, "wifi initiated");
+}
+
+void NetServer::wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data){
+    NetServer *server = static_cast<NetServer*>(arg);
+    xEventGroupSetBits(server->_wifi_events, id == WIFI_EVENT_AP_STOP ? AP_STOPPED_BIT : AP_STARTED_BIT);
+}
+
+esp_err_t NetServer::wifi_off(TickType_t timeout){
+    if (_client_sock >= 0){
+        shutdown(_client_sock, SHUT_RDWR);                              // wakes recv in tcp server task, which closes the socket
+        vTaskDelay(pdMS_TO_TICKS(CLIENT_FIN_FLUSH_MS));
+    }
+    xEventGroupClearBits(_wifi_events, AP_STOPPED_BIT);
+    const esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK)
+        return err;
+    const EventBits_t bits = xEventGroupWaitBits(_wifi_events, AP_STOPPED_BIT, pdFALSE, pdFALSE, timeout);
+    return (bits & AP_STOPPED_BIT) ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+esp_err_t NetServer::wifi_on(TickType_t timeout){
+    xEventGroupClearBits(_wifi_events, AP_STARTED_BIT);
+    const esp_err_t err = esp_wifi_start();
+    if (err != ESP_OK)
+        return err;
+    const EventBits_t bits = xEventGroupWaitBits(_wifi_events, AP_STARTED_BIT, pdFALSE, pdFALSE, timeout);
+    return (bits & AP_STARTED_BIT) ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 void NetServer::start_server_task(){

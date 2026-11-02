@@ -1,0 +1,13 @@
+add another program constant configured option: 
+wifi is on by default
+weight task sequence:
+ disable wifi - disconnect from client 
+ wait  until wifi is off 
+ start reading adc 
+ when task activity terminates enable wifi again
+ 
+	
+ 
+
+
+
