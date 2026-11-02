@@ -73,6 +73,7 @@ class NetServer{
         void wifi_init_ap();
         void start_server_task();
         void start_protocol_task();
+        bool wait_client_closed(TickType_t timeout);                    // false if client is still connected after timeout
         esp_err_t wifi_off(TickType_t timeout);                         // disconnect client, stop AP, wait until stopped
         esp_err_t wifi_on(TickType_t timeout);                          // start AP, wait until started
     private:

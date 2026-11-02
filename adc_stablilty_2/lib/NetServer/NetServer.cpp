@@ -5,6 +5,7 @@ const char *TAG = "TCP";
 static constexpr EventBits_t AP_STARTED_BIT = BIT0;
 static constexpr EventBits_t AP_STOPPED_BIT = BIT1;
 static constexpr uint32_t CLIENT_FIN_FLUSH_MS = 100;                    // lets the TCP FIN go out before the radio stops
+static constexpr uint32_t CLIENT_CLOSE_POLL_MS = 10;
 
 NetServer::NetServer (QueueHandle_t rxQueue, QueueHandle_t txQueue){
   _q_from_main = rxQueue;
@@ -38,6 +39,16 @@ void NetServer::wifi_init_ap(){
 void NetServer::wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data){
     NetServer *server = static_cast<NetServer*>(arg);
     xEventGroupSetBits(server->_wifi_events, id == WIFI_EVENT_AP_STOP ? AP_STOPPED_BIT : AP_STARTED_BIT);
+}
+
+bool NetServer::wait_client_closed(TickType_t timeout){
+    const TickType_t started = xTaskGetTickCount();
+    while (_client_sock >= 0){
+        if (xTaskGetTickCount() - started >= timeout)
+            return false;
+        vTaskDelay(pdMS_TO_TICKS(CLIENT_CLOSE_POLL_MS));
+    }
+    return true;
 }
 
 esp_err_t NetServer::wifi_off(TickType_t timeout){

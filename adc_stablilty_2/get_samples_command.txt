@@ -1,0 +1,10 @@
+add command to adc_client.py:
+client read weight test task samples array data using samples and pointer registers and stores in csv file 
+data is read after test was completed
+when a  client update pointer register, samples array segment is copied to samples register starting at index pointed by pointer register
+then client reads samples register and appends the content to a csv file 
+file name is command argument. 
+existing file is overwritten
+
+
+
