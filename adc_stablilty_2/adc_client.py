@@ -165,10 +165,47 @@ def run_network_command(*command):
     return result.stdout
 
 
+class Guid(ctypes.Structure):
+    _fields_ = [("data1", ctypes.c_uint32), ("data2", ctypes.c_uint16), ("data3", ctypes.c_uint16),
+                ("data4", ctypes.c_uint8 * 8)]
+
+
+class WlanInterfaceInfo(ctypes.Structure):
+    _fields_ = [("guid", Guid), ("description", ctypes.c_uint16 * 256), ("state", ctypes.c_int32)]
+
+
+class WlanInterfaceList(ctypes.Structure):
+    _fields_ = [("count", ctypes.c_uint32), ("index", ctypes.c_uint32), ("first", WlanInterfaceInfo * 1)]
+
+
+def windows_request_scan():
+    """Ask Windows to scan, as opening wifi settings does. Returns at once, needs no administrator prompt.
+
+    netsh only reads the list of the last scan, and has no rescan command. A refused scan is
+    not reported, the list is still usable.
+    """
+    try:
+        wlanapi = ctypes.windll.wlanapi
+    except OSError:
+        return
+    handle = ctypes.c_void_p()
+    version = ctypes.c_uint32()
+    if wlanapi.WlanOpenHandle(2, None, ctypes.byref(version), ctypes.byref(handle)) != 0:
+        return
+    interfaces = ctypes.POINTER(WlanInterfaceList)()
+    if wlanapi.WlanEnumInterfaces(handle, None, ctypes.byref(interfaces)) == 0:
+        first = ctypes.cast(interfaces.contents.first, ctypes.POINTER(WlanInterfaceInfo))
+        for i in range(interfaces.contents.count):
+            wlanapi.WlanScan(handle, ctypes.byref(first[i].guid), None, None, None)
+        wlanapi.WlanFreeMemory(interfaces)
+    wlanapi.WlanCloseHandle(handle, None)
+
+
 def ap_network_state():
     """Return (visible, joined) for AP_SSID. Reads the OS network list, does not wait for a scan."""
     ssid = re.escape(AP_SSID)
-    if sys.platform == "win32":                                 # netsh has no rescan, Windows refreshes by itself
+    if sys.platform == "win32":
+        windows_request_scan()
         networks = run_network_command("netsh", "wlan", "show", "networks")
         return (re.search(rf"^SSID \d+\s*: {ssid}\s*$", networks, re.MULTILINE) is not None,
                 windows_ap_joined())

@@ -68,8 +68,10 @@ stopped and reads state 1.
 
 The PC cannot stay joined to `ESP32_AP` while the AP is off, and the OS may move to
 another saved network. Each time `wait` fails to connect, it checks whether `ESP32_AP`
-is visible. If it is and the PC is on another network, `wait` switches back with
-`nmcli connection up` on Linux or `netsh wlan connect` on Windows. A saved profile
+is visible, after asking the OS for a new scan (`nmcli device wifi rescan` on Linux,
+the `WlanScan` API on Windows, since `netsh` cannot). If it is and the PC is on another
+network, `wait` switches back with `nmcli connection up` on Linux or
+`netsh wlan connect` on Windows. A saved profile
 named `ESP32_AP` must exist. Windows may also need location services on for
 `netsh wlan show networks` to work.
 

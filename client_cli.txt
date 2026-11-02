@@ -1,0 +1,19 @@
+use flow_sensor_gui.py and tcp_com.py as reference to client application
+
+build cli python client for adc_stability_2 server (working in wifi off during test),
+modify server as necessary for the following requirements:
+client may run on Linux and windows 11 platforms
+scripts commands:
+set target:
+	connect to server update target_weight register,get acknowledgment and disconnect  
+start test: 
+	update test register get acknowledgment (do not retry since wifi will be turned off), disconnect.
+	server will turn WiFi off only after sending response to client and then start test 
+	if not acknowledged, assume server is disconnected
+	validate weight_test_task calibration: 10mg weight = CAL_OFFSET + raw weight / CAL_DIV 
+	store 10mg weight in samples array (up to 5000 samples)
+wait for test to complete: 
+	try to connect to server every 3-5s until weight test timeout (program constant) or successful connection.
+	show elpasedddd time on terminal
+	read weight_stat[3] register, display register values and disconnect  
+
