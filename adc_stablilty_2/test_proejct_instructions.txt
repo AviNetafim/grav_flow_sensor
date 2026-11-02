@@ -1,0 +1,21 @@
+reference esp32-c6-devkitm1 Platformio project: grav_sensor_flow/ grav_sensor_flow_fw_2
+adc readings reference applications shows in-stability:  randmo high readings 
+when running weight_test_task without wifi readings were stable  - no noise
+reference project is controlled by a Modbus tcp client
+in separate claude discussion proposed two mitigation steps:
+1. avoid potential wifi preemption by running ads1231 in portENTER_CRITICAL
+2. change task cycle to 10ms and poll adc until conversion is completed  
+
+review reference project
+in adc_stability folder build a Platformio project to test ads1231 reading along side esp32 ap server wifi:
+- run independently without Modbus client commands using terminal commands
+- use weight mode only i.e. will only activate weight_test_task
+- weight_test_task will read adc every approx 100ms for a configured number (program constant) of times and store samples in samples array
+- show task activity on terminal
+- when task  is done, use terminal commands to print samples array buffer. 
+  command will print up to 200 reading pointed by command argument 
+-  allow program options selected by program constant switch: wifi is active and inactive, selected by program constant  
+
+
+
+
