@@ -53,6 +53,7 @@ constants at the top of the script.
 | `python adc_client.py start` | Write the test register once, without retry. No acknowledgment means the server is assumed disconnected. |
 | `python adc_client.py wait` | Try to connect every 4 s, showing elapsed time, until connected or `WEIGHT_TEST_TIMEOUT_S` (200 s). Then show `weight_stat` and disconnect. |
 | `python adc_client.py get-samples <file>` | Save the samples of the completed test to a CSV file. An existing file is overwritten. |
+| `python adc_client.py wifi-release` | Windows, administrator prompt: turn Wi-Fi automatic configuration on again. |
 
 `get-samples` writes one `weight_10mg` value per line, with no header. Writing the
 pointer register (address 6) makes the server copy 32 samples, starting at that index,
@@ -69,9 +70,17 @@ The PC cannot stay joined to `ESP32_AP` while the AP is off, and the OS may move
 another saved network. Each time `wait` fails to connect, it checks whether `ESP32_AP`
 is visible. If it is and the PC is on another network, `wait` switches back with
 `nmcli connection up` on Linux or `netsh wlan connect` on Windows. A saved profile
-named `ESP32_AP` must exist. On Windows, Wi-Fi automatic configuration must stay
-enabled, so skip the disable step in `esp32_ap_connect.bat`. Windows may also need
-location services on for `netsh wlan show networks` to work.
+named `ESP32_AP` must exist. Windows may also need location services on for
+`netsh wlan show networks` to work.
+
+On Windows, `set-target`, `start` and `get-samples` first join `ESP32_AP` if needed.
+Run the client from an administrator prompt to also keep the PC on it between commands.
+The client then turns Wi-Fi automatic configuration off after `set-target` and after a
+successful `wait`, and on again after `start`, `get-samples` and any failure. If you
+stop after `set-target` or `wait`, run `wifi-release`, or the PC will not join networks
+by itself. From a normal prompt the client leaves the setting alone and says that
+Windows may move to another network between commands. `esp32_ap_connect.bat` is not
+needed with this client.
 
 The test assumes the ADS1231 runs at 10 samples per second, since it stores every
 conversion. `time_ms` shows the real interval.

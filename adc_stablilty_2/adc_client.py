@@ -4,14 +4,27 @@ python adc_client.py set-target <grams>     write target weight
 python adc_client.py start                  start weight test, wifi turns off
 python adc_client.py wait                   wait for test end, show weight_stat
 python adc_client.py get-samples <file>     save samples of completed test to csv file
+python adc_client.py wifi-release           Windows: let Windows manage wifi again
 
 Each command connects, does its work and disconnects. Standard library only.
 While waiting, the PC is switched back to the server's wifi if the OS moved to
 another network, using nmcli on Linux and netsh on Windows.
+
+Windows only: set-target, start and get-samples first join the server's wifi if
+needed. Windows wifi automatic configuration is then turned off, so Windows cannot
+move to a network with internet. It stays off after set-target (start follows) and
+after a successful wait (get-samples follows). It is turned on again after start,
+since wait needs it to find the server when its wifi returns, after get-samples,
+after any failure, and by wifi-release.
+
+Changing automatic configuration needs an administrator prompt. From a normal prompt
+every command still joins the server's wifi, but Windows may move to another network
+between commands, and wifi-release is refused.
 """
 
 import argparse
 import csv
+import ctypes
 import re
 import socket
 import subprocess
@@ -25,8 +38,10 @@ SOCKET_TIMEOUT_S = 3
 RTU = 1
 
 AP_SSID = "ESP32_AP"                        # also the name of the saved wifi profile
-JOIN_TIMEOUT_S = 10                         # nmcli gives up joining after this time
+JOIN_TIMEOUT_S = 10                         # nmcli gives up joining after this time, netsh is not asked again before it
 NETWORK_COMMAND_TIMEOUT_S = 15
+WIFI_INTERFACE = "Wi-Fi"                    # Windows adapter name, used if netsh wlan show interfaces has no Name line
+AP_SUBNET_PREFIX = "192.168.4."             # PC address given by the server's DHCP
 
 TARGET_WEIGHT_ADDRESS = 1
 TEST_ADDRESS = 2
@@ -155,9 +170,8 @@ def ap_network_state():
     ssid = re.escape(AP_SSID)
     if sys.platform == "win32":                                 # netsh has no rescan, Windows refreshes by itself
         networks = run_network_command("netsh", "wlan", "show", "networks")
-        interfaces = run_network_command("netsh", "wlan", "show", "interfaces")
         return (re.search(rf"^SSID \d+\s*: {ssid}\s*$", networks, re.MULTILINE) is not None,
-                re.search(rf"^\s*SSID\s*: {ssid}\s*$", interfaces, re.MULTILINE) is not None)
+                windows_ap_joined())
 
     try:
         run_network_command("nmcli", "device", "wifi", "rescan")
@@ -166,6 +180,88 @@ def ap_network_state():
     networks = run_network_command("nmcli", "-t", "-f", "IN-USE,SSID", "device", "wifi", "list", "--rescan", "no")
     return (re.search(rf"^.:{ssid}$", networks, re.MULTILINE) is not None,
             re.search(rf"^\*:{ssid}$", networks, re.MULTILINE) is not None)
+
+
+def windows_ap_joined():
+    interfaces = run_network_command("netsh", "wlan", "show", "interfaces")
+    return re.search(rf"^\s*SSID\s*: {re.escape(AP_SSID)}\s*$", interfaces, re.MULTILINE) is not None
+
+
+def has_ap_address():
+    """True if the PC has an address in the server's subnet, i.e. joined and DHCP done."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect((ESP32_IP, PORT))                     # sends nothing, only selects the route
+            return probe.getsockname()[0].startswith(AP_SUBNET_PREFIX)
+    except OSError:
+        return False
+
+
+def windows_interface():
+    interfaces = run_network_command("netsh", "wlan", "show", "interfaces")
+    match = re.search(r"^\s*Name\s*: (.+?)\s*$", interfaces, re.MULTILINE)
+    return match.group(1) if match else WIFI_INTERFACE
+
+
+def windows_is_admin():
+    return ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+
+def set_wifi_autoconfig(enabled):
+    """Windows: turn wifi automatic configuration (scan, roam, reconnect) on or off.
+
+    Return text to show if it failed, None otherwise. Does nothing on Linux.
+    A normal prompt cannot change it, so there it is taken to be on, as Windows sets it.
+    """
+    if sys.platform != "win32":
+        return None
+    if not windows_is_admin():
+        return None if enabled else f"Not an administrator prompt, Windows may move off {AP_SSID} between commands"
+    try:
+        run_network_command("netsh", "wlan", "set", "autoconfig", f"enabled={'yes' if enabled else 'no'}",
+                            f"interface={windows_interface()}")
+    except NetworkToolError as exc:
+        if enabled:
+            return f"Wifi automatic configuration may still be off, run wifi-release again: {exc}"
+        return f"Wifi not held on {AP_SSID}, Windows may switch networks: {exc}"
+    return None
+
+
+_last_join_request = float("-inf")             # monotonic time of last netsh connect request
+
+
+def windows_connect():
+    """Ask Windows to join AP_SSID. Connecting is refused while automatic configuration is off."""
+    global _last_join_request
+    set_wifi_autoconfig(True)                                   # text ignored, a refused connect below reports the problem
+    run_network_command("netsh", "wlan", "connect", f"name={AP_SSID}", f"ssid={AP_SSID}",
+                        f"interface={windows_interface()}")
+    _last_join_request = time.monotonic()
+
+
+def hold_ap():
+    """Windows: join AP_SSID if needed, then turn automatic configuration off so Windows stays on it.
+
+    Return text to show, None if all went well. Does nothing on Linux.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        if not (windows_ap_joined() and has_ap_address()):
+            windows_connect()
+            deadline = time.monotonic() + JOIN_TIMEOUT_S
+            while not (windows_ap_joined() and has_ap_address()):
+                if time.monotonic() >= deadline:
+                    return f"Could not join {AP_SSID} within {JOIN_TIMEOUT_S} s"
+                time.sleep(1)
+    except NetworkToolError as exc:
+        return f"Cannot join {AP_SSID}: {exc}"
+    return set_wifi_autoconfig(False)
+
+
+def show(text):
+    if text is not None:
+        print(text)
 
 
 def rejoin_ap():
@@ -177,8 +273,10 @@ def rejoin_ap():
         visible, joined = ap_network_state()
         if not visible or joined:
             return None
-        if sys.platform == "win32":
-            run_network_command("netsh", "wlan", "connect", f"name={AP_SSID}")
+        if sys.platform == "win32":                             # netsh returns at once, does not wait for the join
+            if time.monotonic() - _last_join_request < JOIN_TIMEOUT_S:
+                return None                                     # previous join request still in progress
+            windows_connect()
         else:
             run_network_command("nmcli", "--wait", str(JOIN_TIMEOUT_S), "connection", "up", AP_SSID)
     except NetworkToolError as exc:
@@ -191,6 +289,7 @@ def cmd_set_target(args):
         print(f"target must be greater than 0 and less than {MAX_TARGET_G} g")
         return 1
     target_10mg = round(args.grams * 100)
+    show(hold_ap())
     try:
         with ServerConnection() as server:
             server.write_word(TARGET_WEIGHT_ADDRESS, target_10mg)
@@ -205,6 +304,7 @@ def cmd_set_target(args):
 
 
 def cmd_start(args):
+    show(hold_ap())
     try:
         with ServerConnection() as server:
             server.write_word(TEST_ADDRESS, TEST_RUN)
@@ -222,6 +322,7 @@ def cmd_wait(args):
     started = time.monotonic()
     next_attempt = started
     last_rejoin_status = None
+    show(set_wifi_autoconfig(True))                             # Windows must scan to see the server's wifi return
 
     def show_elapsed():
         elapsed = time.monotonic() - started
@@ -254,11 +355,13 @@ def cmd_wait(args):
     print(f"weight_stat[0] test state = {stat[0]} (0=stop, 1=run)")
     print(f"weight_stat[1] test time  = {stat[1]} ds")
     print(f"weight_stat[2] samples    = {stat[2]}")
+    show(hold_ap())                                             # Windows stays on the server's wifi for get-samples
     return 0
 
 
 def cmd_get_samples(args):
     saved = 0
+    show(hold_ap())
     try:
         with ServerConnection() as server:
             state, _, count = server.read_words(WEIGHT_STAT_ADDRESS, WEIGHT_STAT_SIZE)
@@ -286,6 +389,27 @@ def cmd_get_samples(args):
     return 0
 
 
+def cmd_wifi_release(args):
+    if sys.platform != "win32":
+        print("Nothing to do, only used on Windows")
+        return 0
+    if not windows_is_admin():
+        print("Run wifi-release from an administrator prompt")
+        return 1
+    status = set_wifi_autoconfig(True)
+    if status is not None:
+        print(status)
+        return 1
+    print("Windows manages wifi again")
+    return 0
+
+
+# Windows: after success these commands leave automatic configuration as they set it,
+# off after set-target and wait so the PC stays on the server's wifi for the next command.
+# Every other command, and every failure, turns it on again. wifi-release has already tried.
+KEEPS_WIFI_SETTING = {"set-target", "wait"}
+
+
 def main():
     parser = argparse.ArgumentParser(description="adc_stability_2 weight test client")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -297,12 +421,19 @@ def main():
     get_samples = commands.add_parser("get-samples", help="save samples of completed test to csv file")
     get_samples.add_argument("file", help="csv file name, existing file is overwritten")
     get_samples.set_defaults(func=cmd_get_samples)
+    commands.add_parser("wifi-release", help="Windows: turn wifi automatic configuration on again"
+                        ).set_defaults(func=cmd_wifi_release)
     args = parser.parse_args()
+    result = 1
     try:
-        return args.func(args)
+        result = args.func(args)
     except KeyboardInterrupt:
         print("\nInterrupted")
-        return 130
+        result = 130
+    finally:                                                    # also runs on an unexpected exception
+        if args.command != "wifi-release" and not (result == 0 and args.command in KEEPS_WIFI_SETTING):
+            show(set_wifi_autoconfig(True))
+    return result
 
 
 if __name__ == "__main__":
