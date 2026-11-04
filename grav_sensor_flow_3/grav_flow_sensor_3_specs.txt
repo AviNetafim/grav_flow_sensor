@@ -1,0 +1,186 @@
+
+in grav_sensor_flow_3  create new esp32 server project and python client to combine functionalities of:
+	adc_stability_2 esp32  server project and python adc_client script 
+	previous grav_flow_sensor_fw_2  server and python client flow_sensor_gui + tcp_com python scripts 
+
+new project requirements:
+client is a cli script communicating with server via esp32_ap Wi-Fi network 
+
+client functions:
+
+	calibrate:
+		Wi-Fi on
+		client:  
+			command name: cal
+			arguments: test_weight in 10mg units. e.g. (1250 for 12.g)
+			load Json configuration data, update config register and send to server 			// might not be necessary since server will not use ant config data
+			set mode register to weight2time and send to server 
+			set test register to 1 to start weight_test on server 
+			(WiFi will be disabled when server starts weight test task)
+			poll server for live connection every 4s or fixed timeout = 15s
+			when connection is establishe read weight_stat from server 
+			calculate raw_weight = weight_stat[1] + and weight_stat[2] << 16
+			append to cfg.calibration_file [test_weigh, raw_weight]
+			prints both values 
+		server:
+			when test register is updated (case 62):
+				disable Wi-Fi, 
+				activate weight test task in weight2time mode:
+					set task loop counter to 25
+					read raw weight and keep in weight_test_data.samples
+					calculate accumulating average
+					when done split average to weight_stat[1] (lower 16bits) and weight_stat[2] higher 16 bits
+				enable Wi-Fi
+				
+//-----------------------------------------------------------------------------------------------------			
+
+	weight to time:
+		wifi on
+		client:
+			command name : w2t
+			argument: samples_counts (10 - 5000)
+			load Json configuration data, update config register adn send to server 
+			sets mode register to weight2time and sends to server 
+			sets target[0] register to samples_count and sends to server 
+			set test register to 1 to start weight_test on server 
+			poll server for live connection every 4s or fixed timeout = samples_count X 0.1 + margin (client timeout  > server timeout) 		
+			when connection is establishe read weight_stat from server
+			prints loop counter weight_stat[2]
+		server:
+			when test register is updated (case 62):
+				disable Wi-Fi, 
+				activates weight test task in weight2time mode:
+					use config register data : cal_div, call_offset
+					set task loop counter to target[0]
+					read raw weight convert to 10mg units and keep in weight_test_data.samples
+					calculates weight_test_data.samples array accumulating average
+					when done keep average in raw_weight (weight_stat[1]) and loop counter in weight_stat[2]
+				enable Wi-Fi
+				
+//-----------------------------------------------------------------------------------------------------
+
+	weight to increment:
+		Wi-Fi on
+		client:
+			command name : w2g
+			argument: weight_increment in 10mg units (500-4000)
+			load Json configuration data, update config register and send to server 
+			sets mode register to weight2inc and sends to server 
+			sets target[0] register weight_increment and sends to server 
+			set test register to 1 to start weight_test on server 
+			poll server for live connection every 4s or fixed timeout = cfg.inc_timeout + margin (client timeout  > server timeout)	
+			when connection is establishe read weight_stat from server
+			print weight_stat[2] and timeout status 
+		server:
+			when test register is updated (case 62):
+				disable Wi-Fi, 
+				activates weight test task in weight2inc mode:
+					use config register data : cal_div, call_offset
+					task loop{  																				// loop counter: i 
+						sense_flow = false
+						read raw weight, convert to 10mg units and keep in weight_test_data.samples array 
+						if sense_flow == false{																	// in flow sense stage 					
+							for i > 10{ 											
+								if weight_test_data.samples[i] - weight_test_data.samples[i-10] > 50{ 			// flow sensed, (0.5g weight increment in 1s)
+									tare = weight_test_data.samples[i]											// note  tare weight 
+									set cnt2inc = 0 															// clear time to weight target counter
+									sense_flow == true
+								}
+							}
+						}	
+						else{																					// flow sensed , read weight until target weight is reached 
+							increment cnt2inc
+							if (weight_test_data.samples[i] > target[0] + tare) || (i >=config[2]*10){			// stop when target weight or timeout reached 
+								weight_stat[0] = 1)	
+								weight_stat[1] = weight_test_data.sample[i]
+								weight_stat[2] = cnt2inc
+								terminate task 
+							}
+						}
+					}
+				enable Wi-Fi 					
+
+//-----------------------------------------------------------------------------------------------------
+	volume test: 
+		Wi-Fi on
+		client:
+			command name : vol
+			argument: none 
+			load Json configuration data, update config register and send to server 
+			sets mode register to volume and sends to server 
+			set test register to 1 to start weight_test on server 
+			polls server vol_stat register every 2s for test completion vol_Stat[0] = 1 or timeout = =config[1] + margin 
+			prints loop counter vol _stat[2]
+		server:
+			when test register is updated (case 62):
+				activates volume_test_task: 
+				(based on grav_flow sensor_fw_2)
+				use config register data vol_timeout_high, vol_timeout_high,stable_time
+
+//-----------------------------------------------------------------------------------------------------
+
+	get samples:
+		Wi-Fi on
+		client:
+			command name : get
+			argument: none 
+			load Json configuration data for samples file name 
+			read server weight_stat[2]  value 
+			if (value < 5000 ){
+				pull server weight_task weight_test_data.samples data via  samples register 
+			
+			prints loop counter vol _stat[2]
+		server:
+			when test register is updated (case 62):
+				activates volume_test_task: 
+					based on grav_flow sensor_fw_2 
+					use config register data vol_timeout_high, vol_timeout_high,stable_time
+	
+	Wi-Fi-release:
+		as in adc_client
+ 
+//-----------------------------------------------------------------------------------------------------
+  
+revised flow_sendor_cfg.json file:
+{
+	samples_file:	"weight_samples",		// no csv extention
+	calibration_file: "calibrate",       	// no csv extention
+	weight_timeout:	1800,					// should be less than 500  samples array size =5000
+	cal_div: 14171,
+	cal_offset:	-1970,
+	target: 1000,							// in 10mg units 
+	samples_counts: 500,					
+	stable_time: 100,						// in [ms] 	
+	volume_0 3.0,							// in [g]	
+	volume	12.2,							// in [g]	
+	vol_timeout_low	200,					// in [s]	
+	vol_timeout_high 600,					// in [s]	
+}
+
+//-----------------------------------------------------------------------------------------------------
+
+revised reg action structure:
+struct regs_action {
+    uint8_t func;
+    uint8_t address;
+    uint16_t mode[1] = {0x01};                                         // measurement mode : [0]weight2time, [1]weight2inc, [2] volume 
+    uint16_t target[1] = {0x02};                                	   // in 10mg units  for weight and loop count for time 
+    uint16_t test[1] = {0x03};                                         // start test: weight_test_task, single_weight funtion volume_test_task (mode dependent)
+    uint16_t vol_stat[2] = {0x04,0x05};                                // [test_state, time2file_ds]
+    uint16_t weight_stat[3] = {0x06,0x07,0x08};                        // [test_state,raw_weight,sample_counts] 
+    uint16_t samples[REG_SAMPLES] = {0};                               // weight samples buffer 
+    uint16_t pointer[1] = {0x09};                                      // pointer to samlpes buffer
+    uint16_t config[10] = {200, 600, 900, 100, 12060, -4265, 0, 0};
+    uint8_t  ret_code;
+	
+configuration register holds int16_t data 
+revised structure
+	0. vol_timeout_low
+	1. vol_timeout_high
+	2. inc_timeout
+	3. stable_time
+	4. cal_div
+	5. cal_offset
+	6. reserved 
+	7. reserved 
+
