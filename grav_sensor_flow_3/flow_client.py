@@ -9,7 +9,7 @@ python flow_client.py wifi-release             Windows: let Windows manage wifi 
 
 test_weight and weight_increment are in 10 mg units (1250 = 12.5 g). An omitted w2t or
 w2g argument comes from samples_counts or target in flow_sensor_cfg.json, which is read
-from the folder of this script. The csv files are written there too. Standard library only.
+from the folder of this script (or of the exe built by PyInstaller). The csv files are written there too. Standard library only.
 
 Every command first joins the server's wifi if the PC is not on it, using nmcli on Linux
 and netsh on Windows. A command that fails because the connection dropped is sent again
@@ -53,7 +53,9 @@ RECONNECT_TIMEOUT_S = 30                    # a command that can be sent again i
 WIFI_INTERFACE = "Wi-Fi"                    # Windows adapter name, used if netsh wlan show interfaces has no Name line
 AP_SUBNET_PREFIX = "192.168.4."             # PC address given by the server's DHCP
 
-APPLICATION_DIR = pathlib.Path(__file__).resolve().parent
+# Folder of the script, or of the exe when built by PyInstaller: a one-file exe runs from a
+# temporary folder, so __file__ is not where the exe and its json file are.
+APPLICATION_DIR = pathlib.Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
 CONFIG_FILE = APPLICATION_DIR / "flow_sensor_cfg.json"
 
 MODE_ADDRESS = 0
