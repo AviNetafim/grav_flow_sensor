@@ -1,0 +1,108 @@
+('C:\\Users\\avis\\OneDrive - '
+ 'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\fs.pkg',
+ {'BINARY': True,
+  'DATA': True,
+  'EXECUTABLE': True,
+  'EXTENSION': True,
+  'PYMODULE': True,
+  'PYSOURCE': True,
+  'PYZ': False,
+  'SPLASH': True,
+  'SYMLINK': False},
+ [('pyi-contents-directory _internal', '', 'OPTION'),
+  ('PYZ-00.pyz',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\PYZ-00.pyz',
+   'PYZ'),
+  ('struct',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\localpycs\\struct.pyc',
+   'PYMODULE'),
+  ('pyimod01_archive',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\localpycs\\pyimod01_archive.pyc',
+   'PYMODULE'),
+  ('pyimod02_importers',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\localpycs\\pyimod02_importers.pyc',
+   'PYMODULE'),
+  ('pyimod03_ctypes',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\localpycs\\pyimod03_ctypes.pyc',
+   'PYMODULE'),
+  ('pyimod04_pywin32',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\localpycs\\pyimod04_pywin32.pyc',
+   'PYMODULE'),
+  ('pyiboot01_bootstrap',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\.venv\\Lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
+   'PYSOURCE'),
+  ('pyi_rth_inspect',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_inspect.py',
+   'PYSOURCE'),
+  ('flow_client',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\flow_client.py',
+   'PYSOURCE'),
+  ('python313.dll',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\python313.dll',
+   'BINARY'),
+  ('_decimal.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\_decimal.pyd',
+   'EXTENSION'),
+  ('_hashlib.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\_hashlib.pyd',
+   'EXTENSION'),
+  ('unicodedata.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\unicodedata.pyd',
+   'EXTENSION'),
+  ('_lzma.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\_lzma.pyd',
+   'EXTENSION'),
+  ('_bz2.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\_bz2.pyd',
+   'EXTENSION'),
+  ('_socket.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\_socket.pyd',
+   'EXTENSION'),
+  ('select.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\select.pyd',
+   'EXTENSION'),
+  ('_ctypes.pyd',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\_ctypes.pyd',
+   'EXTENSION'),
+  ('VCRUNTIME140.dll',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\VCRUNTIME140.dll',
+   'BINARY'),
+  ('libcrypto-3.dll',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\libcrypto-3.dll',
+   'BINARY'),
+  ('libffi-8.dll',
+   'C:\\Program '
+   'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\\DLLs\\libffi-8.dll',
+   'BINARY'),
+  ('base_library.zip',
+   'C:\\Users\\avis\\OneDrive - '
+   'Netafim\\MyProjects\\gravimetric_flow_sensor\\grav_flow_sensor\\grav_sensor_flow_3\\build\\fs\\base_library.zip',
+   'DATA')],
+ 'python313.dll',
+ False,
+ False,
+ False,
+ [],
+ None,
+ None,
+ None)
