@@ -13,6 +13,7 @@
 #include "nvs_flash.h"
 
 #include "ads1231.h"
+#include "NcsiResponder.h"
 #include "NetServer.h"
 
 static const char *TAG = "MAIN";
@@ -478,6 +479,9 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ns.wifi_init_ap();
+    if (ncsi_responder_start() != ESP_OK) {                                 // tests still work, Windows may leave the AP
+        ESP_LOGE(TAG, "NCSI responder not started");
+    }
     ns.start_server_task();
     ns.start_protocol_task();
 

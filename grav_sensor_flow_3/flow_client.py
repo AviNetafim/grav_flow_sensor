@@ -11,19 +11,22 @@ test_weight and weight_increment are in 10 mg units (1250 = 12.5 g). An omitted 
 w2g argument comes from samples_counts or target in flow_sensor_cfg.json, which is read
 from the folder of this script. The csv files are written there too. Standard library only.
 
-The server turns wifi off during cal, w2t and w2g, so these commands wait for it to return.
-While waiting, the PC is switched back to the server's wifi if the OS moved to another
-network, using nmcli on Linux and netsh on Windows.
+Every command first joins the server's wifi if the PC is not on it, using nmcli on Linux
+and netsh on Windows. A command that fails because the connection dropped is sent again
+after joining again, for up to RECONNECT_TIMEOUT_S. Starting a test is never sent twice.
 
-Windows only: commands first join the server's wifi if needed. Wifi automatic configuration
-is then turned off, so Windows cannot move to a network with internet. It stays off after
-a successful w2t or w2g (get follows). It is turned on again while waiting, since Windows
+The server turns wifi off during cal, w2t and w2g, so these commands wait for it to return.
+While waiting (and during vol), the PC is switched back to the server's wifi if the OS
+moved to another network.
+
+The server answers the Windows internet probes, so Windows sees its wifi as having
+internet and normally stays on it. No administrator prompt or IT change is needed.
+
+Windows administrator prompt only, optional: wifi automatic configuration is also turned
+off while on the server's wifi, so Windows cannot move at all. It stays off after a
+successful w2t or w2g (get follows). It is turned on again while waiting, since Windows
 must scan to find the server when its wifi returns, after every other command, after any
 failure, and by wifi-release.
-
-Changing automatic configuration needs an administrator prompt. From a normal prompt
-every command still joins the server's wifi, but Windows may move to another network
-between commands, and wifi-release is refused.
 """
 
 import argparse
@@ -46,6 +49,7 @@ RTU = 1
 AP_SSID = "ESP32_AP"                        # also the name of the saved wifi profile
 JOIN_TIMEOUT_S = 10                         # nmcli gives up joining after this time, netsh is not asked again before it
 NETWORK_COMMAND_TIMEOUT_S = 15
+RECONNECT_TIMEOUT_S = 30                    # a command that can be sent again is retried this long
 WIFI_INTERFACE = "Wi-Fi"                    # Windows adapter name, used if netsh wlan show interfaces has no Name line
 AP_SUBNET_PREFIX = "192.168.4."             # PC address given by the server's DHCP
 
@@ -180,6 +184,51 @@ class ServerConnection:
         return [data[i] + 256 * data[i + 1] for i in range(0, len(data), 2)]
 
 
+class ReconnectingConnection:
+    """Server connection that is opened again, joining the server's wifi if needed, when it drops.
+
+    Only for times the server's wifi is on. run repeats a failed operation, run_once never does.
+    """
+
+    def __init__(self):
+        self.connection = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self._close()
+
+    def _close(self):
+        if self.connection is not None:
+            self.connection.__exit__(None, None, None)
+            self.connection = None
+
+    def run(self, operation):
+        """Return operation(connection), repeated on ComError until RECONNECT_TIMEOUT_S. ServerError is not repeated."""
+        deadline = time.monotonic() + RECONNECT_TIMEOUT_S
+        last_status = None
+        while True:
+            try:
+                if self.connection is None:
+                    status = join_ap()
+                    if status is not None and status != last_status:
+                        print(f"\n{status}")
+                    last_status = status
+                    self.connection = ServerConnection().__enter__()
+                return operation(self.connection)
+            except ComError:
+                self._close()
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(1)
+
+    def run_once(self, operation):
+        """Return operation(connection), sent at most once. Only opening the connection is repeated."""
+        self.run(lambda connection: None)
+        return operation(self.connection)
+
+
 def run_network_command(*command):
     try:
         result = subprocess.run(command, capture_output=True, text=True, errors="replace",
@@ -279,7 +328,7 @@ def set_wifi_autoconfig(enabled):
     if sys.platform != "win32":
         return None
     if not windows_is_admin():
-        return None if enabled else f"Not an administrator prompt, Windows may move off {AP_SSID} between commands"
+        return None                                             # optional, the server's internet probe answers keep Windows on it
     try:
         run_network_command("netsh", "wlan", "set", "autoconfig", f"enabled={'yes' if enabled else 'no'}",
                             f"interface={windows_interface()}")
@@ -302,23 +351,41 @@ def windows_connect():
     _last_join_request = time.monotonic()
 
 
-def hold_ap():
-    """Windows: join AP_SSID if needed, then turn automatic configuration off so Windows stays on it.
+def ap_ready():
+    """True if the PC is on AP_SSID and has an address from the server's DHCP."""
+    return has_ap_address() and (sys.platform != "win32" or windows_ap_joined())
 
-    Return text to show, None if all went well. Does nothing on Linux.
+
+def join_ap():
+    """Join AP_SSID if needed and wait for the address. Return text to show, None if joined.
+
+    Only for times the server's wifi is on: joining a network that is off can drop the current one.
     """
-    if sys.platform != "win32":
-        return None
     try:
-        if not (windows_ap_joined() and has_ap_address()):
+        if ap_ready():
+            return None
+        if sys.platform == "win32":                             # netsh returns at once, does not wait for the join
             windows_connect()
             deadline = time.monotonic() + JOIN_TIMEOUT_S
-            while not (windows_ap_joined() and has_ap_address()):
+            while not ap_ready():
                 if time.monotonic() >= deadline:
                     return f"Could not join {AP_SSID} within {JOIN_TIMEOUT_S} s"
                 time.sleep(1)
+        else:
+            run_network_command("nmcli", "--wait", str(JOIN_TIMEOUT_S), "connection", "up", AP_SSID)
     except NetworkToolError as exc:
         return f"Cannot join {AP_SSID}: {exc}"
+    return None
+
+
+def hold_ap():
+    """Join AP_SSID if needed. Windows administrator prompt: also turn automatic configuration off.
+
+    Return text to show, None if all went well.
+    """
+    status = join_ap()
+    if status is not None:
+        return status
     return set_wifi_autoconfig(False)
 
 
@@ -385,16 +452,29 @@ def config_words(config):
 
 def start_test(config, mode, target=None):
     """Write config, mode, target and test registers. Return True if the server acknowledged the start."""
+    def write_settings(server):
+        server.write_words(CONFIG_ADDRESS, config_words(config))
+        server.write_word(MODE_ADDRESS, mode)
+        if target is not None:
+            server.write_word(TARGET_ADDRESS, target)
+
+    start_sent = False
+
+    def send_start(server):
+        nonlocal start_sent
+        start_sent = True
+        server.write_word(TEST_ADDRESS, TEST_START)
+
     show(hold_ap())
     try:
-        with ServerConnection() as server:
-            server.write_words(CONFIG_ADDRESS, config_words(config))
-            server.write_word(MODE_ADDRESS, mode)
-            if target is not None:
-                server.write_word(TARGET_ADDRESS, target)
-            server.write_word(TEST_ADDRESS, TEST_START)         # no retry, wifi may already be turning off
+        with ReconnectingConnection() as server:
+            server.run(write_settings)                          # settings can be written again
+            server.run_once(send_start)                         # never twice, wifi may already be turning off
     except ComError as exc:
-        print(f"Start not acknowledged, assuming server is disconnected: {exc}")
+        if start_sent:
+            print(f"Start not acknowledged, the test may be running, let it end before the next command: {exc}")
+        else:
+            print(f"Server not reached, test not started: {exc}")
         return False
     except ServerError as exc:
         print(f"Start refused: {exc}")
@@ -414,7 +494,7 @@ def wait_for_result(address, size, timeout_s, period_s, rejoin):
     while True:
         show_elapsed()
         if time.monotonic() >= next_attempt:
-            next_attempt += period_s
+            next_attempt = time.monotonic() + period_s          # a slow attempt delays the next one, never doubles it
             try:
                 with ServerConnection() as server:
                     stat = server.read_words(address, size)
@@ -516,7 +596,7 @@ def cmd_vol(args, config):
     print("Volume test started")
     # the server waits for the low level, then for the high level, each with its own timeout
     timeout_s = int(config["vol_timeout_low"]) + int(config["vol_timeout_high"]) + TIMEOUT_MARGIN_S
-    stat = wait_for_result(VOL_STAT_ADDRESS, VOL_STAT_SIZE, timeout_s, VOL_POLL_PERIOD_S, False)
+    stat = wait_for_result(VOL_STAT_ADDRESS, VOL_STAT_SIZE, timeout_s, VOL_POLL_PERIOD_S, True)  # wifi stays on
     if stat is None:
         return 1
     print(f"Result: {state_name(stat[0])}")
@@ -527,10 +607,15 @@ def cmd_vol(args, config):
 def cmd_get(args, config):
     samples_file = APPLICATION_DIR / f"{str(config['samples_file']).strip()}.csv"
     saved = 0
+
+    def read_segment(server, pointer):
+        server.write_word(SAMPLES_POINTER_ADDRESS, pointer)
+        return server.read_words(SAMPLES_ADDRESS, REG_SAMPLES)
+
     show(hold_ap())
     try:
-        with ServerConnection() as server:
-            state, _, _, count = server.read_words(WEIGHT_STAT_ADDRESS, WEIGHT_STAT_SIZE)
+        with ReconnectingConnection() as server:
+            state, _, _, count = server.run(lambda connection: connection.read_words(WEIGHT_STAT_ADDRESS, WEIGHT_STAT_SIZE))
             if state == STATE_PENDING:                          # existing file is kept in these two cases
                 print("No completed weight test, samples are read after it completes")
                 return 1
@@ -540,8 +625,7 @@ def cmd_get(args, config):
             with samples_file.open("w", newline="", encoding="utf-8") as csv_file:
                 writer = csv.writer(csv_file)
                 for pointer in range(0, count, REG_SAMPLES):
-                    server.write_word(SAMPLES_POINTER_ADDRESS, pointer)
-                    words = server.read_words(SAMPLES_ADDRESS, REG_SAMPLES)
+                    words = server.run(lambda connection: read_segment(connection, pointer))  # repeated after a drop
                     for word in words[:count - pointer]:
                         writer.writerow([to_signed16(word)])    # signed int16 weight in 10 mg
                         saved += 1
